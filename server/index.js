@@ -164,7 +164,10 @@ app.use(async (req, res, next) => {
 // Health
 // --------------------------------------------------------
 app.get('/health', (_req, res) => res.json({ ok: true, version: 1, uptime: process.uptime() }));
-
+app.get('/__routes', (req, res) => {
+  // This won’t enumerate all middleware, but confirms our file is running
+  res.json({ ok: true, routes: ['/health', '/__routes', '/api/meta', '/api/tasks'] });
+});
 // --------------------------------------------------------
 // Meta: columns + phases
 // --------------------------------------------------------
@@ -181,7 +184,8 @@ app.get('/api/meta', async (_req, res) => {
           name: (nameCell?.displayValue ?? nameCell?.value ?? 'Phase')
         };
       });
-    res.json({ sheetId: SHEET_ID, columns: COLUMNS, phases });
+    // res.json({ sheetId: SHEET_ID, columns: COLUMNS, phases });
+    res.json({ ok: true, route: '/api/meta_is_registered' });
   } catch (e) {
     res.status(500).json({ message: e.message });
   }
