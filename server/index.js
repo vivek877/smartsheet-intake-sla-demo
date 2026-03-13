@@ -1,9 +1,9 @@
 require('dotenv').config();
 
-import express, { json } from 'express';
-import cors from 'cors';
-import morgan from 'morgan';
-import createSmartsheet from './smartsheet'; // returns client.createClient({ accessToken })
+const express = require('express');
+const cors = require('cors');
+const morgan = require('morgan');
+const createSmartsheet = require('./smartsheet'); // returns client.createClient({ accessToken })
 
 const app = express();
 
@@ -23,7 +23,7 @@ app.use(
   })
 );
 
-app.use(json());
+app.use(express.json());
 app.use(morgan('dev'));
 
 /* -------------------- ENV + SDK -------------------- */
