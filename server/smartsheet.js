@@ -1,7 +1,7 @@
-const client = require('smartsheet');
+import { createClient } from 'smartsheet';
 
-module.exports = function createSmartsheet(accessToken) {
-  return client.createClient({
+export default function createSmartsheet(accessToken) {
+  return createClient({
     accessToken
   });
 };
