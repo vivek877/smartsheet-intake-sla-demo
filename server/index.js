@@ -19,6 +19,8 @@ app.use(cors({
 app.use(express.json());
 app.use(morgan('dev'));
 
+console.log('*** STARTED server/index.js at', new Date().toISOString())
+
 const TOKEN = process.env.SMARTSHEET_TOKEN;
 if (!TOKEN) throw new Error('SMARTSHEET_TOKEN is required');
 
