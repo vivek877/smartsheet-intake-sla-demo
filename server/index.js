@@ -19,8 +19,6 @@ app.use(cors({
 app.use(express.json());
 app.use(morgan('dev'));
 
-console.log('*** STARTED server/index.js at', new Date().toISOString())
-
 const TOKEN = process.env.SMARTSHEET_TOKEN;
 if (!TOKEN) throw new Error('SMARTSHEET_TOKEN is required');
 
@@ -175,21 +173,19 @@ app.get('/__routes', (req, res) => {
 // --------------------------------------------------------
 app.get('/api/meta', async (_req, res) => {
   try {
-    const sheet = await sdk.sheets.getSheet({ id: SHEET_ID });
-    const taskNameCol = COLUMNS.find(c => c.title.toLowerCase() === 'task name');
-    const phases = (sheet.rows || [])
-      .filter(r => !r.parentId)
-      .map(r => {
-        const nameCell = taskNameCol ? r.cells.find(c => c.columnId === taskNameCol.id) : null;
-        return {
-          id: r.id,
-          name: (nameCell?.displayValue ?? nameCell?.value ?? 'Phase')
-        };
-      });
-    // res.json({ sheetId: SHEET_ID, columns: COLUMNS, phases });
-    res.json({ ok: true, route: '/api/meta_is_registered' });
+    // quick visibility
+    console.log('ENV SHEET_ID=', process.env.SHEET_ID, 'SHEET_NAME=', process.env.SHEET_NAME);
+
+    const sheet = await sdk.sheets.getSheet({ id: SHEET_ID }); // your cached SHEET_ID var
+    // … the rest of your code that builds phases + columns …
+
+    return res.json({ sheetId: SHEET_ID, columns: COLUMNS, phases });
   } catch (e) {
-    res.status(500).json({ message: e.message });
+    console.error('META ERROR:', e?.message, e?.statusCode, e?.stack);
+    return res.status(500).json({
+      message: e?.message || 'Internal Error',
+      hint: 'Check SHEET_ID / token / sharing',
+    });
   }
 });
 
