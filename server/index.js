@@ -203,6 +203,7 @@ app.get('/__diag', async (_req, res) => {
     return res.status(500).json({
       message: e?.message || 'Diag failed',
       envSheetId: process.env.SHEET_ID,
+      envSheetName: process.env.SHEET_NAME,
       parsedSheetId: SHEET_ID
     });
   }
