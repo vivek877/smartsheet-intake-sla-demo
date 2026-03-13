@@ -34,6 +34,7 @@ const sdk = createSmartsheet(TOKEN);
 
 const SHEET_ID_ENV =
   (process.env.SHEET_ID && String(process.env.SHEET_ID).trim()) || '';
+
 const SHEET_NAME = (process.env.SHEET_NAME || '').trim();
 const PORT = Number(process.env.PORT || 4000);
 
@@ -82,6 +83,7 @@ async function loadColumns(id) {
 async function ensureSheetBoot() {
   if (!SHEET_ID) {
     SHEET_ID = await resolveSheetId();
+    console.log('Using SHEET_ID:', SHEET_ID);
   }
   if (!COLUMNS || !COLUMNS.length) {
     await loadColumns(SHEET_ID);
@@ -184,6 +186,28 @@ app.get('/__routes', (_req, res) =>
     routes: ['/health', '/__routes', '/api/meta', '/api/tasks (CRUD)'],
   })
 );
+
+
+// New: quick diagnostics to prove the live config
+app.get('/__diag', async (_req, res) => {
+  try {
+    await ensureSheetBoot();
+    const sheet = await sdk.sheets.getSheet({ id: SHEET_ID });
+    return res.json({
+      envSheetId: process.env.SHEET_ID,
+      parsedSheetId: SHEET_ID,
+      sheetName: sheet.name,
+      accessCheck: true
+    });
+  } catch (e) {
+    return res.status(500).json({
+      message: e?.message || 'Diag failed',
+      envSheetId: process.env.SHEET_ID,
+      parsedSheetId: SHEET_ID
+    });
+  }
+});
+
 
 // META: sheetId + columns + phases (top-level rows)
 app.get('/api/meta', async (_req, res) => {
