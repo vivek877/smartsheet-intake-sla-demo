@@ -1,16 +1,167 @@
-require('dotenv').config();
+require('dotenv').config();_ID to the numeric id that works.'
+  );
+}
+
+/* -------------------- Ensure boot (id + columns) -------------------- */
+async function ensureSheetBoot() {
+  await resolveSheetIdSmart();
+  if (!COLUMNS.length) await loadColumns(SHEET_ID);
+}
+
+/* -------------------- Column utilities -------------------- */
+function colByTitleInsensitive(title) {
+  if (!title) return null;
+  return COLUMN_BY_TITLE.get(title.trim().toLowerCase()) || null;
+}
+
+function findNameColumn() {
+  const primary = COLUMNS.find((c) => c.primary === true);
+  if (primary) return primary;
+  const candidates = ['Task Name', 'Primary', 'Name', 'Title', 'Task'];
+  for (const cand of candidates) {
+    const col = colByTitleInsensitive(cand);
+    if (col) return col;
+  }
+  return COLUMNS.find((c) => c.type === 'TEXT_NUMBER') || COLUMNS[0] || null;
+}
+
+function findStartColumn() {
+  const candidates = ['Start', 'Start Date', 'StartDate'];
+  for (const cand of candidates) {
+    const col = colByTitleInsensitive(cand);
+    if (col) return col;
+  }
+  return null;
+}
+
+function findEndColumn() {
+  const candidates = ['End', 'End Date', 'EndDate', 'Finish'];
+  for (const cand of candidates) {
+    const col = colByTitleInsensitive(cand);
+    if (col) return col;
+  }
+  return null;
+}
+
+function findPercentColumn() {
+  const candidates = ['% Complete', 'Percent Complete', 'Complete %'];
+  for (const cand of candidates) {
+    const col = colByTitleInsensitive(cand);
+    if (col) return col;
+  }
+  return null;
+}
+
+function findStatusColumn() {
+  const candidates = ['Status'];
+  for (const cand of candidates) {
+    const col = colByTitleInsensitive(cand);
+    if (col) return col;
+  }
+  return null;
+}
+
+function findAssignedToColumn() {
+  let col = colByTitleInsensitive('Assigned To');
+  if (col) return col;
+  const candidates = ['Assignee', 'Owner', 'Assigned', 'AssignedTo'];
+  for (const cand of candidates) {
+    col = colByTitleInsensitive(cand);
+    if (col) return col;
+  }
+  return null;
+}
+
+function isContactLike(col) {
+  if (!col) return false;
+  if (col.type === 'CONTACT_LIST') return true;
+  // If API shows TEXT_NUMBER but has contactOptions, treat as contacts
+  if (Array.isArray(col.contactOptions) && col.contactOptions.length > 0)
+    return true;
+  return false;
+}
+
+function isEditableCell(column, cell) {
+  if (!column) return false;
+  if (column.systemColumnType) return false; // system fields
+  if (cell && cell.formula) return false; // formula-backed cells are read-only
+  return true;
+}
+
+/* -------------------- Value builders -------------------- */
+function contactObjectValue(value) {
+  if (Array.isArray(value)) {
+    const vals = value
+      .filter(Boolean)
+      .map((email) => ({ objectType: 'CONTACT', email }));
+    return { objectValue: { objectType: 'MULTI_CONTACT', values: vals } };
+  }
+  if (typeof value === 'string' && value.trim()) {
+    return { objectValue: { objectType: 'CONTACT', email: value.trim() } };
+  }
+  return { value: null };
+}
+
+function buildCellsPayload(cellsByTitle) {
+  const items = [];
+  for (const [title, val] of Object.entries(cellsByTitle || {})) {
+    const col =
+      colByTitleInsensitive(title) ||
+      COLUMNS.find((c) => (c.title || '') === title);
+    if (!col) continue;
+
+    // Skip system / complex read-only
+    if (col.systemColumnType) continue;
+    if (['PREDECESSOR', 'DURATION'].includes(col.type)) continue;
+
+    // Contacts
+    if (isContactLike(col)) {
+      items.push({ columnId: col.id, ...contactObjectValue(val) });
+      continue;
+    }
+
+    // Date-like (includes ABSTRACT_DATETIME in your sheet)
+    if (['DATE', 'DATETIME', 'ABSTRACT_DATETIME'].includes(col.type)) {
+      items.push({ columnId: col.id, value: val || null });
+      continue;
+    }
+
+    // Default
+    items.push({ columnId: col.id, value: val });
+  }
+  return items;
+}
+
+/* -------------------- Flatten row for UI -------------------- */
+function flattenRow(row) {
+  const flat = {
+    id: row.id,
+    rowNumber: row.rowNumber,
+    parentId: row.parentId || null,
+    indent: row.parentId ? 1 : 0,
+    isPhase: row.parentId ? false : true,
+    cells: {},
+  };
+
+  for (const cell of row.cells) {
+    const col = COLUMNS.find((c) => c.id === cell.columnId);
+    if (!col) continue;
+
+    let display = cell.displayValue ?? cell.value ?? '';
+
+    if (cell.objectValue
 
 const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
-const createSmartsheet = require('./smartsheet'); // returns client.createClient({ accessToken })
+const createSmartsheet = require('./smartsheet'); // -> returns client.createClient({ accessToken })
 
 const app = express();
 
 /* -------------------- CORS -------------------- */
 const ORIGINS_ENV =
   process.env.ALLOWED_ORIGINS || process.env.ALLOWED_ORIGIN || '*';
-const ORIGINS = ORIGINS_ENV.split(',').map(s => s.trim());
+const ORIGINS = ORIGINS_ENV.split(',').map((s) => s.trim());
 
 app.use(
   cors({
@@ -24,6 +175,13 @@ app.use(
 );
 
 app.use(express.json());
+
+// Ensure JSON responses (some proxies/clients are picky)
+app.use((_req, res, next) => {
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  next();
+});
+
 app.use(morgan('dev'));
 
 /* -------------------- ENV + SDK -------------------- */
@@ -32,81 +190,220 @@ if (!TOKEN) throw new Error('SMARTSHEET_TOKEN is required');
 
 const sdk = createSmartsheet(TOKEN);
 
-const SHEET_ID_ENV =
-  (process.env.SHEET_ID && String(process.env.SHEET_ID).trim()) || '';
-
 const SHEET_NAME = (process.env.SHEET_NAME || '').trim();
 const PORT = Number(process.env.PORT || 4000);
 
 /* -------------------- In‑memory cache -------------------- */
-let SHEET_ID; // resolved numeric id
-let COLUMNS = []; // [{id,title,type,options?,systemColumnType?}]
-let COLUMN_BY_TITLE = new Map();
+let SHEET_ID; // resolved numeric id (valid after ensureSheetBoot)
+let COLUMNS = []; // [{id,title,type,options?,systemColumnType?,primary?,contactOptions?}]
+let COLUMN_BY_TITLE = new Map(); // normalized title -> column
 
-/* -------------------- Helpers -------------------- */
-async function resolveSheetId() {
-  // Prefer numeric SHEET_ID from env for reliability
-  if (SHEET_ID_ENV) return Number(SHEET_ID_ENV);
-  if (!SHEET_NAME) {
-    throw new Error('Set SHEET_ID or SHEET_NAME in environment.');
-  }
-
-  // Fallback: resolve by name
-  const list = await sdk.sheets.listSheets({
-    queryParameters: { includeAll: true },
-  });
-  const found = list.data?.find(
-    (s) => s.name && s.name.trim() === SHEET_NAME
-  );
-  if (!found) {
-    throw new Error(
-      `Sheet named "${SHEET_NAME}" not found. Set SHEET_ID instead.`
-    );
-  }
-  return found.id;
+/* -------------------- Helper: numeric id sanitize -------------------- */
+function sanitizeSheetId(raw) {
+  if (!raw) return null;
+  const digits = (String(raw).match(/\d+/g) || []).join('');
+  if (!digits) return null;
+  const idNum = Number(digits);
+  return Number.isFinite(idNum) ? idNum : null;
 }
 
+/* -------------------- Load columns & build map -------------------- */
 async function loadColumns(id) {
-  const sheet = await sdk.sheets.getSheet({ id });
+  const sheet = await sdk.sheets.getSheet({ id }); // verifies access + id
   COLUMNS = (sheet.columns || []).map((c) => ({
     id: c.id,
     title: c.title,
     type: c.type,
     options: c.options || null,
     systemColumnType: c.systemColumnType || null,
+    primary: !!c.primary,
+    contactOptions: c.contactOptions || null,
   }));
-  COLUMN_BY_TITLE = new Map(COLUMNS.map((c) => [c.title, c]));
+
+  COLUMN_BY_TITLE = new Map();
+  for (const col of COLUMNS) {
+    const key = (col.title || '').trim().toLowerCase();
+    if (key) COLUMN_BY_TITLE.set(key, col);
+  }
   return sheet;
 }
 
-// Ensure we have a numeric SHEET_ID and loaded columns for every request.
-async function ensureSheetBoot() {
-  if (!SHEET_ID) {
-    SHEET_ID = await resolveSheetId();
-    console.log('Using SHEET_ID:', SHEET_ID);
+/* -------------------- Resolve sheet id robustly -------------------- */
+async function resolveSheetIdSmart() {
+  if (SHEET_ID) return SHEET_ID;
+
+  // 1) Try explicit SHEET_ID from env
+  const envId = sanitizeSheetId(process.env.SHEET_ID);
+  if (envId) {
+    try {
+      await sdk.sheets.getSheet({ id: envId }); // verify id works with token
+      SHEET_ID = envId;
+      console.log('Using SHEET_ID:', SHEET_ID);
+      return SHEET_ID;
+    } catch (e) {
+      console.error('resolveSheetIdSmart: getSheet(envId) failed:', e?.message);
+    }
   }
-  if (!COLUMNS || !COLUMNS.length) {
-    await loadColumns(SHEET_ID);
+
+  // 2) Fallback by name (if provided)
+  if (SHEET_NAME) {
+    const list = await sdk.sheets.listSheets({
+      queryParameters: { includeAll: true },
+    });
+    const found = (list.data || []).find(
+      (s) => (s.name || '').trim() === SHEET_NAME
+    );
+    if (!found)
+      throw new Error(
+        `Sheet named "${SHEET_NAME}" not found for this token. Set a valid SHEET_ID.`
+      );
+    // verify we can open it
+    await sdk.sheets.getSheet({ id: found.id });
+    SHEET_ID = found.id;
+    console.log('Resolved SHEET_ID from name ->', SHEET_ID);
+    return SHEET_ID;
   }
+
+  throw new Error('No valid SHEET_ID / SHEET_NAME. Set SHEET_ID to the numeric id that works.'
+);
 }
 
-function colByTitle(title) {
-  return COLUMN_BY_TITLE.get(title);
+/* -------------------- Ensure boot (id + columns) -------------------- */
+async function ensureSheetBoot() {
+  await resolveSheetIdSmart();
+  if (!COLUMNS.length) await loadColumns(SHEET_ID);
+}
+
+/* -------------------- Column utilities -------------------- */
+function colByTitleInsensitive(title) {
+  if (!title) return null;
+  return COLUMN_BY_TITLE.get(title.trim().toLowerCase()) || null;
+}
+
+function findNameColumn() {
+  const primary = COLUMNS.find((c) => c.primary === true);
+  if (primary) return primary;
+  const candidates = ['Task Name', 'Primary', 'Name', 'Title', 'Task'];
+  for (const cand of candidates) {
+    const col = colByTitleInsensitive(cand);
+    if (col) return col;
+  }
+  return COLUMNS.find((c) => c.type === 'TEXT_NUMBER') || COLUMNS[0] || null;
+}
+
+function findStartColumn() {
+  const candidates = ['Start', 'Start Date', 'StartDate'];
+  for (const cand of candidates) {
+    const col = colByTitleInsensitive(cand);
+    if (col) return col;
+  }
+  return null;
+}
+
+function findEndColumn() {
+  const candidates = ['End', 'End Date', 'EndDate', 'Finish'];
+  for (const cand of candidates) {
+    const col = colByTitleInsensitive(cand);
+    if (col) return col;
+  }
+  return null;
+}
+
+function findPercentColumn() {
+  const candidates = ['% Complete', 'Percent Complete', 'Complete %'];
+  for (const cand of candidates) {
+    const col = colByTitleInsensitive(cand);
+    if (col) return col;
+  }
+  return null;
+}
+
+function findStatusColumn() {
+  const candidates = ['Status'];
+  for (const cand of candidates) {
+    const col = colByTitleInsensitive(cand);
+    if (col) return col;
+  }
+  return null;
+}
+
+function findAssignedToColumn() {
+  let col = colByTitleInsensitive('Assigned To');
+  if (col) return col;
+  const candidates = ['Assignee', 'Owner', 'Assigned', 'AssignedTo'];
+  for (const cand of candidates) {
+    col = colByTitleInsensitive(cand);
+    if (col) return col;
+  }
+  return null;
+}
+
+function isContactLike(col) {
+  if (!col) return false;
+  if (col.type === 'CONTACT_LIST') return true;
+  if (Array.isArray(col.contactOptions) && col.contactOptions.length > 0)
+    return true; // treat as contact list even if type shows TEXT_NUMBER
+  return false;
 }
 
 function isEditableCell(column, cell) {
   if (!column) return false;
-  if (column.systemColumnType) return false; // createdBy, modifiedDate, etc.
-  if (cell && cell.formula) return false; // formula cells read‑only
+  if (column.systemColumnType) return false; // system fields
+  if (cell && cell.formula) return false; // formula-backed cells are read-only
   return true;
 }
 
+/* -------------------- Value builders -------------------- */
+function contactObjectValue(value) {
+  if (Array.isArray(value)) {
+    const vals = value
+      .filter(Boolean)
+      .map((email) => ({ objectType: 'CONTACT', email }));
+    return { objectValue: { objectType: 'MULTI_CONTACT', values: vals } };
+  }
+  if (typeof value === 'string' && value.trim()) {
+    return { objectValue: { objectType: 'CONTACT', email: value.trim() } };
+  }
+  return { value: null };
+}
+
+function buildCellsPayload(cellsByTitle) {
+  const items = [];
+  for (const [title, val] of Object.entries(cellsByTitle || {})) {
+    const col =
+      colByTitleInsensitive(title) ||
+      COLUMNS.find((c) => (c.title || '') === title);
+    if (!col) continue;
+
+    // Skip system / complex read-only
+    if (col.systemColumnType) continue;
+    if (['PREDECESSOR', 'DURATION'].includes(col.type)) continue;
+
+    // Contacts
+    if (isContactLike(col)) {
+      items.push({ columnId: col.id, ...contactObjectValue(val) });
+      continue;
+    }
+
+    // Date-like (includes ABSTRACT_DATETIME in your sheet)
+    if (['DATE', 'DATETIME', 'ABSTRACT_DATETIME'].includes(col.type)) {
+      items.push({ columnId: col.id, value: val || null });
+      continue;
+    }
+
+    // Default
+    items.push({ columnId: col.id, value: val });
+  }
+  return items;
+}
+
+/* -------------------- Flatten row for UI -------------------- */
 function flattenRow(row) {
   const flat = {
     id: row.id,
     rowNumber: row.rowNumber,
     parentId: row.parentId || null,
-    indent: row.parentId ? 1 : 0, // (basic indentation indicator)
+    indent: row.parentId ? 1 : 0,
     isPhase: row.parentId ? false : true,
     cells: {},
   };
@@ -115,10 +412,8 @@ function flattenRow(row) {
     const col = COLUMNS.find((c) => c.id === cell.columnId);
     if (!col) continue;
 
-    // Prefer displayValue for user-facing rendering
     let display = cell.displayValue ?? cell.value ?? '';
 
-    // Handle CONTACT_LIST & MULTI_CONTACT to support multi-select in UI
     if (cell.objectValue && cell.objectValue.objectType === 'MULTI_CONTACT') {
       const emails = (cell.objectValue.values || [])
         .map((v) => v.email)
@@ -137,112 +432,79 @@ function flattenRow(row) {
   return flat;
 }
 
-// CONTACT_LIST builder: array -> MULTI_CONTACT, string -> CONTACT
-function contactObjectValue(value) {
-  if (Array.isArray(value)) {
-    const vals = value
-      .filter(Boolean)
-      .map((email) => ({ objectType: 'CONTACT', email }));
-    return { objectValue: { objectType: 'MULTI_CONTACT', values: vals } };
-  }
-  if (typeof value === 'string' && value.trim()) {
-    return { objectValue: { objectType: 'CONTACT', email: value.trim() } };
-  }
-  return { value: null };
-}
-
-// Convert {'Task Name': 'X', 'Status': 'In Progress', ...} -> [{ columnId, value|objectValue }]
-function buildCellsPayload(cellsByTitle) {
-  const items = [];
-  for (const [title, val] of Object.entries(cellsByTitle || {})) {
-    const col = colByTitle(title);
-    if (!col) continue;
-
-    // CONTACT_LIST uses objectValue
-    if (col.type === 'CONTACT_LIST') {
-      const contactPayload = contactObjectValue(val);
-      items.push({ columnId: col.id, ...contactPayload });
-      continue;
-    }
-
-    // Dates can be plain 'YYYY-MM-DD' (API accepts ISO); other types pass through.
-    items.push({ columnId: col.id, value: val });
-  }
-  return items;
-}
-
 /* -------------------- Diagnostics -------------------- */
 console.log('*** Server starting at', new Date().toISOString());
 
-/* -------------------- Routes -------------------- */
 app.get('/health', (_req, res) =>
   res.json({ ok: true, version: 1, uptime: process.uptime() })
 );
 
-// Optional probe you can remove after the demo
 app.get('/__routes', (_req, res) =>
   res.json({
     ok: true,
-    routes: ['/health', '/__routes', '/api/meta', '/api/tasks (CRUD)'],
+    routes: ['/health', '/__routes', '/__diag', '/api/meta', '/api/tasks (CRUD)'],
   })
 );
 
-
-// New: quick diagnostics to prove the live config
 app.get('/__diag', async (_req, res) => {
   try {
-    await ensureSheetBoot();
-    const sheet = await sdk.sheets.getSheet({ id: SHEET_ID });
+    const envRaw = process.env.SHEET_ID || null;
+    const parsedEnv = sanitizeSheetId(envRaw);
+    const liveId = await resolveSheetIdSmart(); // verifies & caches
+    const sheet = await sdk.sheets.getSheet({ id: liveId });
     return res.json({
-      envSheetId: process.env.SHEET_ID,
-      parsedSheetId: SHEET_ID,
+      envSheetId: envRaw,
+      parsedEnvSheetId: parsedEnv || null,
+      resolvedSheetId: liveId,
       sheetName: sheet.name,
-      accessCheck: true
+      accessCheck: true,
     });
   } catch (e) {
     return res.status(500).json({
       message: e?.message || 'Diag failed',
-      envSheetId: process.env.SHEET_ID,
-      envSheetName: process.env.SHEET_NAME,
-      parsedSheetId: SHEET_ID
+      envSheetId: process.env.SHEET_ID || null,
+      parsedEnvSheetId: sanitizeSheetId(process.env.SHEET_ID) || null,
+      resolvedSheetId: SHEET_ID || null,
     });
   }
 });
 
-
-// META: sheetId + columns + phases (top-level rows)
+/* -------------------- API: META -------------------- */
 app.get('/api/meta', async (_req, res) => {
   try {
     await ensureSheetBoot();
     const sheet = await sdk.sheets.getSheet({ id: SHEET_ID });
-    const taskNameCol = COLUMNS.find(
-      (c) => (c.title || '').toLowerCase() === 'task name'
-    );
+
+    const nameCol = findNameColumn();
+    const nameColId = nameCol?.id;
 
     const phases = (sheet.rows || [])
       .filter((r) => !r.parentId)
       .map((r) => {
-        const nameCell = taskNameCol
-          ? r.cells.find((c) => c.columnId === taskNameCol.id)
-          : null;
-        return {
-          id: r.id,
-          name: nameCell?.displayValue ?? nameCell?.value ?? 'Phase',
-        };
+        let label = 'Phase';
+        if (nameColId) {
+          const cell = r.cells.find((c) => c.columnId === nameColId);
+          label = cell?.displayValue ?? cell?.value ?? label;
+        }
+        return { id: r.id, name: label };
       });
 
-    return res.json({ sheetId: SHEET_ID, columns: COLUMNS, phases });
+    return res.json({
+      sheetId: SHEET_ID,
+      columns: COLUMNS,
+      phases,
+    });
   } catch (e) {
     console.error('META ERROR:', e?.message);
     return res.status(500).json({
-      message: e?.message || 'Internal Error',
+      message: e?.message || 'Internal Error (meta)',
       hint:
-        'Verify SHEET_ID and SMARTSHEET_TOKEN; this route calls getSheet(id).',
+        'Verify token & sheet access; meta reads sheet then maps the primary/name column.',
     });
   }
 });
 
-// LIST tasks
+/* -------------------- API: LIST -------------------- */
 app.get('/api/tasks', async (_req, res) => {
   try {
     await ensureSheetBoot();
@@ -255,7 +517,7 @@ app.get('/api/tasks', async (_req, res) => {
   }
 });
 
-// CREATE task under a phase (parentId)
+/* -------------------- API: CREATE -------------------- */
 app.post('/api/tasks', async (req, res) => {
   try {
     await ensureSheetBoot();
@@ -266,9 +528,17 @@ app.post('/api/tasks', async (req, res) => {
         .json({ message: 'parentId (phase row id) is required' });
     }
 
+    // Normalize "Task Name" -> actual name column (Primary) if needed
+    const normalizedCells = { ...cells };
+    const nameCol = findNameColumn();
+    if (nameCol && normalizedCells['Task Name'] && !normalizedCells[nameCol.title]) {
+      normalizedCells[nameCol.title] = normalizedCells['Task Name'];
+      delete normalizedCells['Task Name'];
+    }
+
     const payload = {
       parentId,
-      cells: buildCellsPayload(cells),
+      cells: buildCellsPayload(normalizedCells),
     };
 
     const result = await sdk.sheets.addRows({
@@ -276,7 +546,8 @@ app.post('/api/tasks', async (req, res) => {
       body: [payload],
     });
 
-    const created = Array.isArray(result) ? result[0] : result?.[0];
+    const created =
+      (Array.isArray(result) && result[0]) || result?.[0] || null;
     return res.status(201).json(created ? { id: created.id } : { ok: true });
   } catch (e) {
     console.error('CREATE ERROR:', e?.message);
@@ -284,7 +555,7 @@ app.post('/api/tasks', async (req, res) => {
   }
 });
 
-// UPDATE task cells
+/* -------------------- API: UPDATE -------------------- */
 app.patch('/api/tasks/:rowId', async (req, res) => {
   try {
     await ensureSheetBoot();
@@ -294,10 +565,17 @@ app.patch('/api/tasks/:rowId', async (req, res) => {
       return res.status(400).json({ message: 'rowId and cells are required' });
     }
 
+    const normalizedCells = { ...cells };
+    const nameCol = findNameColumn();
+    if (nameCol && normalizedCells['Task Name'] && !normalizedCells[nameCol.title]) {
+      normalizedCells[nameCol.title] = normalizedCells['Task Name'];
+      delete normalizedCells['Task Name'];
+    }
+
     const body = [
       {
         id: rowId,
-        cells: buildCellsPayload(cells),
+        cells: buildCellsPayload(normalizedCells),
       },
     ];
 
@@ -314,7 +592,7 @@ app.patch('/api/tasks/:rowId', async (req, res) => {
   }
 });
 
-// DELETE task (block phase delete)
+/* -------------------- API: DELETE -------------------- */
 app.delete('/api/tasks/:rowId', async (req, res) => {
   try {
     await ensureSheetBoot();
@@ -339,3 +617,4 @@ app.delete('/api/tasks/:rowId', async (req, res) => {
 app.listen(PORT, () => {
   console.log(`API listening on :${PORT}`);
 });
+
