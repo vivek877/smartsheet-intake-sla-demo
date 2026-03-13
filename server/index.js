@@ -1,4 +1,118 @@
-require('dotenv').config();_ID to the numeric id that works.'
+require('dotenv').config();
+
+const express = require('express');
+const cors = require('cors');
+const morgan = require('morgan');
+const createSmartsheet = require('./smartsheet'); // -> returns client.createClient({ accessToken })
+
+const app = express();
+
+/* -------------------- CORS -------------------- */
+const ORIGINS_ENV =
+  process.env.ALLOWED_ORIGINS || process.env.ALLOWED_ORIGIN || '*';
+const ORIGINS = ORIGINS_ENV.split(',').map((s) => s.trim());
+
+app.use(
+  cors({
+    origin: (origin, cb) => {
+      if (ORIGINS.includes('*') || !origin || ORIGINS.includes(origin)) {
+        return cb(null, true);
+      }
+      return cb(new Error('CORS blocked'), false);
+    },
+  })
+);
+
+app.use(express.json());
+
+// Keep responses JSON (helps in some proxies/clients)
+app.use((_req, res, next) => {
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  next();
+});
+
+app.use(morgan('dev'));
+
+/* -------------------- ENV + SDK -------------------- */
+const TOKEN = process.env.SMARTSHEET_TOKEN;
+if (!TOKEN) throw new Error('SMARTSHEET_TOKEN is required');
+
+const sdk = createSmartsheet(TOKEN);
+
+const SHEET_NAME = (process.env.SHEET_NAME || '').trim();
+const PORT = Number(process.env.PORT || 4000);
+
+/* -------------------- In‑memory cache -------------------- */
+let SHEET_ID; // resolved numeric id (guaranteed valid after ensureSheetBoot)
+let COLUMNS = []; // [{id,title,type,options?,systemColumnType?, primary?, contactOptions?}]
+let COLUMN_BY_TITLE = new Map(); // normalized title -> column
+
+/* -------------------- Helpers -------------------- */
+function sanitizeSheetId(raw) {
+  if (!raw) return null;
+  const digits = (String(raw).match(/\d+/g) || []).join('');
+  if (!digits) return null;
+  const idNum = Number(digits);
+  return Number.isFinite(idNum) ? idNum : null;
+}
+
+async function loadColumns(id) {
+  const sheet = await sdk.sheets.getSheet({ id }); // proves id + token are valid
+  COLUMNS = (sheet.columns || []).map((c) => ({
+    id: c.id,
+    title: c.title,
+    type: c.type,
+    options: c.options || null,
+    systemColumnType: c.systemColumnType || null,
+    primary: !!c.primary,
+    contactOptions: c.contactOptions || null,
+  }));
+
+  COLUMN_BY_TITLE = new Map();
+  for (const col of COLUMNS) {
+    const key = (col.title || '').trim().toLowerCase();
+    if (key) COLUMN_BY_TITLE.set(key, col);
+  }
+  return sheet;
+}
+
+// Try: SHEET_ID (sanitized) -> verify via getSheet
+// Else fallback by name (listSheets -> matching name -> verify -> cache)
+async function resolveSheetIdSmart() {
+  if (SHEET_ID) return SHEET_ID;
+
+  const envId = sanitizeSheetId(process.env.SHEET_ID);
+  if (envId) {
+    try {
+      await sdk.sheets.getSheet({ id: envId });
+      SHEET_ID = envId;
+      console.log('Using SHEET_ID:', SHEET_ID);
+      return SHEET_ID;
+    } catch (e) {
+      console.error('resolveSheetIdSmart: getSheet(envId) failed:', e?.message);
+    }
+  }
+
+  if (SHEET_NAME) {
+    const list = await sdk.sheets.listSheets({
+      queryParameters: { includeAll: true },
+    });
+    const found = (list.data || []).find(
+      (s) => (s.name || '').trim() === SHEET_NAME
+    );
+    if (!found)
+      throw new Error(
+        `Sheet named "${SHEET_NAME}" not found for this token. Set a valid SHEET_ID.`
+      );
+    // verify
+    await sdk.sheets.getSheet({ id: found.id });
+    SHEET_ID = found.id;
+    console.log('Resolved SHEET_ID from name ->', SHEET_ID);
+    return SHEET_ID;
+  }
+
+  throw new Error(
+    'No valid SHEET_ID / SHEET_NAME. Set SHEET_ID to the numeric id that works.'
   );
 }
 
