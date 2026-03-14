@@ -57,7 +57,7 @@ function sanitizeSheetId(raw) {
 
 /* -------------------- Load columns & build map -------------------- */
 async function loadColumns(id) {
-  const sheet = await sdk.sheets.getSheet({ sheetId: id }); // verifies access + id
+  const sheet = await sdk.sheets.getSheet({ id }); // verifies access + id
   COLUMNS = (sheet.columns || []).map((c) => ({
     id: c.id,
     title: c.title,
@@ -84,35 +84,54 @@ async function resolveSheetIdSmart() {
   const envId = sanitizeSheetId(process.env.SHEET_ID);
   if (envId) {
     try {
-      await sdk.sheets.getSheet({ sheetId: envId }); // verify id works with token
+      await sdk.sheets.getSheet({ id: envId }); // verify id works with token
       SHEET_ID = envId;
-      console.log('Using SHEET_ID:', SHEET_ID);
+      console.log('Using explicit numeric SHEET_ID:', SHEET_ID);
       return SHEET_ID;
     } catch (e) {
-      console.error('resolveSheetIdSmart: getSheet(envId) failed:', e?.message);
+      console.error(
+        `resolveSheetIdSmart: getSheet for envId ${envId} failed: ${e?.message}. Falling back to name lookup...`
+      );
     }
   }
 
   // 2) Fallback by name (if provided)
   if (SHEET_NAME) {
-    const list = await sdk.sheets.listSheets({
-      queryParameters: { includeAll: true },
-    });
-    const found = (list.data || []).find(
-      (s) => (s.name || '').trim() === SHEET_NAME
-    );
-    if (!found)
-      throw new Error(
-        `Sheet named "${SHEET_NAME}" not found for this token. Set a valid SHEET_ID.`
+    console.log(`Looking up sheet by name: "${SHEET_NAME}"`);
+    let found = null;
+    try {
+      // Fetch all sheets for the user
+      const list = await sdk.sheets.listSheets({
+        queryParameters: { includeAll: true },
+      });
+      found = (list.data || []).find(
+        (s) => (s.name || '').trim() === SHEET_NAME
       );
-    // verify we can open it
-    await sdk.sheets.getSheet({ sheetId: found.id });
-    SHEET_ID = found.id;
-    console.log('Resolved SHEET_ID from name ->', SHEET_ID);
-    return SHEET_ID;
+    } catch (e) {
+      console.error('resolveSheetIdSmart: listSheets failed:', e?.message);
+      throw new Error(`Failed to list sheets to find "${SHEET_NAME}": ${e?.message}`);
+    }
+
+    if (!found) {
+      // Give the user a hint of what sheets were actually found
+      console.error(`Sheet named "${SHEET_NAME}" not found. Ensure this exact name exists or use a valid numeric SHEET_ID.`);
+      throw new Error(`Sheet named "${SHEET_NAME}" not found for this token. Set a valid numeric SHEET_ID.`);
+    }
+
+    try {
+      // verify we can open it
+      await sdk.sheets.getSheet({ id: found.id });
+      SHEET_ID = found.id;
+      console.log('Resolved SHEET_ID from name ->', SHEET_ID);
+      return SHEET_ID;
+    } catch (e) {
+      console.error(`resolveSheetIdSmart: getSheet for found id ${found.id} failed:`, e?.message);
+      throw new Error(`Found sheet "${SHEET_NAME}" but failed to access it. Verify token permissions. Error: ${e?.message}`);
+    }
   }
 
-  throw new Error('No valid SHEET_ID / SHEET_NAME. Set SHEET_ID to the numeric id that works.'
+  throw new Error(
+    'No valid SHEET_ID / SHEET_NAME. Set SHEET_ID to the numeric id that works.'
   );
 }
 
@@ -223,8 +242,9 @@ function buildCellsPayload(cellsByTitle) {
       COLUMNS.find((c) => (c.title || '') === title);
     if (!col) continue;
 
-    // Skip system / complex read-only
+    // Skip system / complex read-only / formulas
     if (col.systemColumnType) continue;
+    if (col.formula) continue;
     if (['PREDECESSOR', 'DURATION'].includes(col.type)) continue;
 
     // Contacts
@@ -235,12 +255,22 @@ function buildCellsPayload(cellsByTitle) {
 
     // Date-like (includes ABSTRACT_DATETIME in your sheet)
     if (['DATE', 'DATETIME', 'ABSTRACT_DATETIME'].includes(col.type)) {
+      // Smartsheet often rejects these if they are auto-calculated start/end dates for dependencies
+      if (col.tags && (col.tags.includes('GANTT_START_DATE') || col.tags.includes('GANTT_END_DATE'))) {
+          // If dependencies/gantt are enabled, start/end dates are often read-only or calculated from duration
+          // Let's pass them only if project settings allow, but typically it's safer to skip unless explicitly needed.
+          // For now, we will allow them but wrap in try-catch in the caller.
+          items.push({ columnId: col.id, value: val || null });
+          continue;
+      }
       items.push({ columnId: col.id, value: val || null });
       continue;
     }
 
     // Default
-    items.push({ columnId: col.id, value: val });
+    // Do not send empty string for TEXT_NUMBER, send null
+    const safeVal = (val === '' && col.type === 'TEXT_NUMBER') ? null : val;
+    items.push({ columnId: col.id, value: safeVal });
   }
   return items;
 }
@@ -299,7 +329,7 @@ app.get('/__diag', async (_req, res) => {
     const envRaw = process.env.SHEET_ID || null;
     const parsedEnv = sanitizeSheetId(envRaw);
     const liveId = await resolveSheetIdSmart(); // verifies & caches
-    const sheet = await sdk.sheets.getSheet({ sheetId: liveId });
+    const sheet = await sdk.sheets.getSheet({ id: liveId });
     return res.json({
       envSheetId: envRaw,
       parsedEnvSheetId: parsedEnv || null,
@@ -321,7 +351,7 @@ app.get('/__diag', async (_req, res) => {
 app.get('/api/meta', async (_req, res) => {
   try {
     await ensureSheetBoot();
-    const sheet = await sdk.sheets.getSheet({ sheetId: SHEET_ID });
+    const sheet = await sdk.sheets.getSheet({ id: SHEET_ID });
 
     const nameCol = findNameColumn();
     const nameColId = nameCol?.id;
@@ -356,7 +386,7 @@ app.get('/api/meta', async (_req, res) => {
 app.get('/api/tasks', async (_req, res) => {
   try {
     await ensureSheetBoot();
-    const sheet = await sdk.sheets.getSheet({ sheetId: SHEET_ID });
+    const sheet = await sdk.sheets.getSheet({ id: SHEET_ID });
     const rows = (sheet.rows || []).map(flattenRow);
     return res.json({ rows, columns: COLUMNS });
   } catch (e) {
@@ -390,7 +420,7 @@ app.post('/api/tasks', async (req, res) => {
     };
 
     const result = await sdk.sheets.addRows({
-      sheetId: SHEET_ID,
+      id: SHEET_ID,
       body: [payload],
     });
 
@@ -429,7 +459,7 @@ app.patch('/api/tasks/:rowId', async (req, res) => {
     ];
 
     const result = await sdk.sheets.updateRows({
-      sheetId: SHEET_ID,
+      id: SHEET_ID,
       body,
     });
 
