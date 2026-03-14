@@ -82,6 +82,7 @@ async function resolveSheetIdSmart() {
 
   // 1) Try explicit SHEET_ID from env
   const envId = sanitizeSheetId(process.env.SHEET_ID);
+  let getEnvErr = null;
   if (envId) {
     try {
       await sdk.sheets.getSheet({ id: envId }); // verify id works with token
@@ -89,8 +90,9 @@ async function resolveSheetIdSmart() {
       console.log('Using explicit numeric SHEET_ID:', SHEET_ID);
       return SHEET_ID;
     } catch (e) {
+      getEnvErr = e?.message || 'Unknown SDK error';
       console.error(
-        `resolveSheetIdSmart: getSheet for envId ${envId} failed: ${e?.message}. Falling back to name lookup...`
+        `resolveSheetIdSmart: getSheet for envId ${envId} failed: ${getEnvErr}. Falling back to name lookup...`
       );
     }
   }
@@ -99,6 +101,7 @@ async function resolveSheetIdSmart() {
   if (SHEET_NAME) {
     console.log(`Looking up sheet by name: "${SHEET_NAME}"`);
     let found = null;
+    let listErr = null;
     try {
       // Fetch all sheets for the user
       const list = await sdk.sheets.listSheets({
@@ -108,14 +111,14 @@ async function resolveSheetIdSmart() {
         (s) => (s.name || '').trim() === SHEET_NAME
       );
     } catch (e) {
-      console.error('resolveSheetIdSmart: listSheets failed:', e?.message);
-      throw new Error(`Failed to list sheets to find "${SHEET_NAME}": ${e?.message}`);
+      listErr = e?.message || 'Unknown SDK error listSheets';
+      console.error('resolveSheetIdSmart: listSheets failed:', listErr);
     }
 
     if (!found) {
       // Give the user a hint of what sheets were actually found
-      console.error(`Sheet named "${SHEET_NAME}" not found. Ensure this exact name exists or use a valid numeric SHEET_ID.`);
-      throw new Error(`Sheet named "${SHEET_NAME}" not found for this token. Set a valid numeric SHEET_ID.`);
+      console.error(`Sheet named "${SHEET_NAME}" not found. Ensure exact name exists or use valid numeric SHEET_ID.`);
+      throw new Error(`Sheet named "${SHEET_NAME}" not found for this token. Primary error when trying SHEET_ID ${envId}: [ ${getEnvErr || 'No ID provided'} ]. ListSheets Error: [ ${listErr || 'Sheet name not found in list'} ]`);
     }
 
     try {
@@ -325,9 +328,39 @@ app.get('/__routes', (_req, res) =>
 );
 
 app.get('/__diag', async (_req, res) => {
+  let directTestMsg = 'Not tested';
+  let listSheetsTest = 'Not tested';
   try {
     const envRaw = process.env.SHEET_ID || null;
     const parsedEnv = sanitizeSheetId(envRaw);
+
+    // Provide a direct test capability specifically for the diag endpoint 
+    // to bypass resolveSheetIdSmart's fallback and strictly test the token/ID directly.
+    if (parsedEnv) {
+      try {
+        await sdk.sheets.getSheet({ id: parsedEnv });
+        directTestMsg = 'Success! { id: parsedEnv } worked with this Token.';
+      } catch (err1) {
+        directTestMsg = `Failed with { id: ${parsedEnv} } -> ${err1.message}`;
+        // Test an alternate payload just in case SDK docs are misleading
+        try {
+          await sdk.sheets.getSheet({ sheetId: parsedEnv });
+          directTestMsg += ` | However, it DID succeed with { sheetId: ${parsedEnv} }. Modify code if this is the case.`;
+        } catch (err2) {
+          directTestMsg += ` | Failed with { sheetId: ${parsedEnv} } -> ${err2.message}`;
+        }
+      }
+    } else {
+      directTestMsg = 'No numeric SHEET_ID parsed from environment to test directly.';
+    }
+
+    try {
+       const list = await sdk.sheets.listSheets({ queryParameters: { includeAll: true } });
+       listSheetsTest = `Success: Token can access listSheets. Found ${(list.data || []).length} sheets.`;
+    } catch (errList) {
+       listSheetsTest = `Failed to listSheets: ${errList.message}`;
+    }
+
     const liveId = await resolveSheetIdSmart(); // verifies & caches
     const sheet = await sdk.sheets.getSheet({ id: liveId });
     return res.json({
@@ -336,6 +369,8 @@ app.get('/__diag', async (_req, res) => {
       resolvedSheetId: liveId,
       sheetName: sheet.name,
       accessCheck: true,
+      directTestMsg,
+      listSheetsTest
     });
   } catch (e) {
     return res.status(500).json({
@@ -343,6 +378,9 @@ app.get('/__diag', async (_req, res) => {
       envSheetId: process.env.SHEET_ID || null,
       parsedEnvSheetId: sanitizeSheetId(process.env.SHEET_ID) || null,
       resolvedSheetId: SHEET_ID || null,
+      errorDetails: e?.message,
+      directTestMsg,
+      listSheetsTest
     });
   }
 });
@@ -420,7 +458,7 @@ app.post('/api/tasks', async (req, res) => {
     };
 
     const result = await sdk.sheets.addRows({
-      id: SHEET_ID,
+      sheetId: SHEET_ID,
       body: [payload],
     });
 
@@ -459,7 +497,7 @@ app.patch('/api/tasks/:rowId', async (req, res) => {
     ];
 
     const result = await sdk.sheets.updateRows({
-      id: SHEET_ID,
+      sheetId: SHEET_ID,
       body,
     });
 
