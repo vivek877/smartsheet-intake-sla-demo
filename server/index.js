@@ -57,10 +57,9 @@ function sanitizeSheetId(raw) {
 
 /* -------------------- Load columns & build map -------------------- */
 async function loadColumns(id) {
-  const response = await sdk.sheets.getSheet({ sheetId: id }); // verifies access + id
+  const response = await sdk.sheets.getSheet({ id }); // SDK v2 uses 'id' for getSheet
   const sheet = response.data || response.sheet || response; // Handle SDK wrappers
-  logger.info(sheet, 'response', response) // logs
-  logger.info(sheet.columns, 'columns') // logs
+  console.log('sheet columns:', sheet.columns ? sheet.columns.length : 'none'); 
   COLUMNS = (sheet.columns || []).map((c) => ({
     id: c.id,
     title: c.title,
@@ -88,7 +87,7 @@ async function resolveSheetIdSmart() {
   let getEnvErr = null;
   if (envId) {
     try {
-      await sdk.sheets.getSheet({ sheetId: envId }); // verify id works with token
+      await sdk.sheets.getSheet({ id: envId }); // verify id works with token
       SHEET_ID = envId;
       console.log('Using explicit numeric SHEET_ID:', SHEET_ID);
       return SHEET_ID;
@@ -126,7 +125,7 @@ async function resolveSheetIdSmart() {
 
     try {
       // verify we can open it
-      await sdk.sheets.getSheet({ sheetId: found.id });
+      await sdk.sheets.getSheet({ id: found.id });
       SHEET_ID = found.id;
       console.log('Resolved SHEET_ID from name ->', SHEET_ID);
       return SHEET_ID;
@@ -330,9 +329,10 @@ app.get('/__routes', (_req, res) =>
   })
 );
 
-app.get('/__diag', async (_req, res) => {
+app.get(['/__diag', '/api/__diag'], async (_req, res) => {
   let directTestMsg = 'Not tested';
   let listSheetsTest = 'Not tested';
+  let sheetResponse = null; // Declare outside try for catch access
   try {
     const envRaw = process.env.SHEET_ID || null;
     const parsedEnv = sanitizeSheetId(envRaw);
@@ -341,16 +341,16 @@ app.get('/__diag', async (_req, res) => {
     // to bypass resolveSheetIdSmart's fallback and strictly test the token/ID directly.
     if (parsedEnv) {
       try {
-        await sdk.sheets.getSheet({ sheetId: parsedEnv });
-        directTestMsg = 'Success! { sheetId: parsedEnv } worked with this Token.';
+        await sdk.sheets.getSheet({ id: parsedEnv });
+        directTestMsg = 'Success! { id: parsedEnv } worked with this Token.';
       } catch (err1) {
-        directTestMsg = `Failed with { sheetId: ${parsedEnv} } -> ${err1.message}`;
+        directTestMsg = `Failed with { id: ${parsedEnv} } -> ${err1.message}`;
         // Test an alternate payload just in case SDK docs are misleading
         try {
-          await sdk.sheets.getSheet({ id: parsedEnv });
-          directTestMsg += ` | However, it DID succeed with { id: ${parsedEnv} }. Modify code if this is the case.`;
+          await sdk.sheets.getSheet({ sheetId: parsedEnv });
+          directTestMsg += ` | However, it DID succeed with { sheetId: ${parsedEnv} }. Modify code if this is the case.`;
         } catch (err2) {
-          directTestMsg += ` | Failed with { id: ${parsedEnv} } -> ${err2.message}`;
+          directTestMsg += ` | Failed with { sheetId: ${parsedEnv} } -> ${err2.message}`;
         }
       }
     } else {
@@ -365,7 +365,7 @@ app.get('/__diag', async (_req, res) => {
     }
 
     const liveId = await resolveSheetIdSmart(); // verifies & caches
-    const sheetResponse = await sdk.sheets.getSheet({ sheetId: liveId });
+    sheetResponse = await sdk.sheets.getSheet({ id: liveId });
     const sheet = sheetResponse.data || sheetResponse.sheet || sheetResponse;
 
     return res.json({
@@ -394,9 +394,10 @@ app.get('/__diag', async (_req, res) => {
 
 /* -------------------- API: META -------------------- */
 app.get('/api/meta', async (_req, res) => {
+  let response = null; // Declare outside try for catch access
   try {
     await ensureSheetBoot();
-    const response = await sdk.sheets.getSheet({ sheetId: SHEET_ID });
+    response = await sdk.sheets.getSheet({ id: SHEET_ID });
     const sheet = response.data || response.sheet || response;
 
     const nameCol = findNameColumn();
@@ -414,6 +415,7 @@ app.get('/api/meta', async (_req, res) => {
       });
 
     return res.json({
+      response: response,
       sheetId: SHEET_ID,
       columns: COLUMNS,
       phases,
@@ -421,6 +423,7 @@ app.get('/api/meta', async (_req, res) => {
   } catch (e) {
     console.error('META ERROR:', e?.message);
     return res.status(500).json({
+      response: response,
       message: e?.message || 'Internal Error (meta)',
       hint:
         'Verify token & sheet access; meta reads sheet then maps the primary/name column.',
@@ -432,7 +435,7 @@ app.get('/api/meta', async (_req, res) => {
 app.get('/api/tasks', async (_req, res) => {
   try {
     await ensureSheetBoot();
-    const response = await sdk.sheets.getSheet({ sheetId: SHEET_ID });
+    const response = await sdk.sheets.getSheet({ id: SHEET_ID });
     const sheet = response.data || response.sheet || response;
     const rows = (sheet.rows || []).map(flattenRow);
     return res.json({ rows, columns: COLUMNS });
