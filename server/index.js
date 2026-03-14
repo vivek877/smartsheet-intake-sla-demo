@@ -59,6 +59,8 @@ function sanitizeSheetId(raw) {
 async function loadColumns(id) {
   const response = await sdk.sheets.getSheet({ sheetId: id }); // verifies access + id
   const sheet = response.data || response.sheet || response; // Handle SDK wrappers
+  logger.info(sheet, 'response', response) // logs
+  logger.info(sheet.columns, 'columns') // logs
   COLUMNS = (sheet.columns || []).map((c) => ({
     id: c.id,
     title: c.title,
@@ -261,11 +263,11 @@ function buildCellsPayload(cellsByTitle) {
     if (['DATE', 'DATETIME', 'ABSTRACT_DATETIME'].includes(col.type)) {
       // Smartsheet often rejects these if they are auto-calculated start/end dates for dependencies
       if (col.tags && (col.tags.includes('GANTT_START_DATE') || col.tags.includes('GANTT_END_DATE'))) {
-          // If dependencies/gantt are enabled, start/end dates are often read-only or calculated from duration
-          // Let's pass them only if project settings allow, but typically it's safer to skip unless explicitly needed.
-          // For now, we will allow them but wrap in try-catch in the caller.
-          items.push({ columnId: col.id, value: val || null });
-          continue;
+        // If dependencies/gantt are enabled, start/end dates are often read-only or calculated from duration
+        // Let's pass them only if project settings allow, but typically it's safer to skip unless explicitly needed.
+        // For now, we will allow them but wrap in try-catch in the caller.
+        items.push({ columnId: col.id, value: val || null });
+        continue;
       }
       items.push({ columnId: col.id, value: val || null });
       continue;
@@ -356,17 +358,18 @@ app.get('/__diag', async (_req, res) => {
     }
 
     try {
-       const list = await sdk.sheets.listSheets({ queryParameters: { includeAll: true } });
-       listSheetsTest = `Success: Token can access listSheets. Found ${(list.data || []).length} sheets.`;
+      const list = await sdk.sheets.listSheets({ queryParameters: { includeAll: true } });
+      listSheetsTest = `Success: Token can access listSheets. Found ${(list.data || []).length} sheets.`;
     } catch (errList) {
-       listSheetsTest = `Failed to listSheets: ${errList.message}`;
+      listSheetsTest = `Failed to listSheets: ${errList.message}`;
     }
 
     const liveId = await resolveSheetIdSmart(); // verifies & caches
     const sheetResponse = await sdk.sheets.getSheet({ sheetId: liveId });
     const sheet = sheetResponse.data || sheetResponse.sheet || sheetResponse;
-    
+
     return res.json({
+      sheetResponse: sheetResponse,
       envSheetId: envRaw,
       parsedEnvSheetId: parsedEnv || null,
       resolvedSheetId: liveId,
@@ -377,6 +380,7 @@ app.get('/__diag', async (_req, res) => {
     });
   } catch (e) {
     return res.status(500).json({
+      sheetResponse: sheetResponse,
       message: e?.message || 'Diag failed',
       envSheetId: process.env.SHEET_ID || null,
       parsedEnvSheetId: sanitizeSheetId(process.env.SHEET_ID) || null,
