@@ -400,19 +400,6 @@ app.get('/api/meta', async (_req, res) => {
     response = await sdk.sheets.getSheet({ sheetId: SHEET_ID });
     const sheet = response.data || response.sheet || response;
 
-    const sheetByID = await sdk.sheets.getSheet({
-      id: 535205132586884, // your numeric sheet ID
-      // Optionally, include object values (contacts, predecessors), etc.
-      queryParameters: {
-        include: 'objectValue',   // get objectValue for CONTACT_LIST, PREDECESSOR, etc.
-        // You can also use: include: 'rowPermalink,objectValue,attachments,discussions' if needed
-        // For very large sheets you can page rows:
-        // page: 1,
-        // pageSize: 500
-      }
-    });
-    console.log('sheetById', sheetByID, 'sheet', sheet)
-
     const nameCol = findNameColumn();
     const nameColId = nameCol?.id;
 
@@ -429,7 +416,6 @@ app.get('/api/meta', async (_req, res) => {
 
     return res.json({
       response: response,
-      sheetByID: sheetByID,
       sheetId: SHEET_ID,
       columns: COLUMNS,
       phases,
@@ -438,7 +424,6 @@ app.get('/api/meta', async (_req, res) => {
     console.error('META ERROR:', e?.message);
     return res.status(500).json({
       response: response,
-      sheetByID: sheetByID,
       message: e?.message || 'Internal Error (meta)',
       hint:
         'Verify token & sheet access; meta reads sheet then maps the primary/name column.',
