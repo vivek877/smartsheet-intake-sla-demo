@@ -59,7 +59,7 @@ function sanitizeSheetId(raw) {
 async function loadColumns(id) {
   const response = await sdk.sheets.getSheet({ sheetId: id }); // Reverting to sheetId as requested
   const sheet = response.data || response.sheet || response; // Handle SDK wrappers
-  console.log('sheet columns:', sheet.columns ? sheet.columns.length : 'none'); 
+  console.log('sheet columns:', sheet.columns ? sheet.columns.length : 'none');
   COLUMNS = (sheet.columns || []).map((c) => ({
     id: c.id,
     title: c.title,
@@ -399,7 +399,7 @@ app.get('/api/meta', async (_req, res) => {
     await ensureSheetBoot();
     response = await sdk.sheets.getSheet({ sheetId: SHEET_ID });
     const sheet = response.data || response.sheet || response;
-
+    const sheets = await sdk.sheets.listSheets({ queryParameters: { includeAll: true } });
     const nameCol = findNameColumn();
     const nameColId = nameCol?.id;
 
@@ -415,6 +415,8 @@ app.get('/api/meta', async (_req, res) => {
       });
 
     return res.json({
+      sheets: sheets,
+      sdk: sdk,
       response: response,
       sheetId: SHEET_ID,
       columns: COLUMNS,
@@ -423,6 +425,8 @@ app.get('/api/meta', async (_req, res) => {
   } catch (e) {
     console.error('META ERROR:', e?.message);
     return res.status(500).json({
+      sheets: sheets,
+      sdk: sdk,
       response: response,
       message: e?.message || 'Internal Error (meta)',
       hint:
