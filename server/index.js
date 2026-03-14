@@ -411,6 +411,7 @@ app.get('/api/meta', async (_req, res) => {
         // pageSize: 500
       }
     });
+    console.log('sheetById', sheetByID, 'sheet', sheet)
 
     const nameCol = findNameColumn();
     const nameColId = nameCol?.id;
