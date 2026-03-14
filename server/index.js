@@ -398,6 +398,9 @@ app.get('/api/meta', async (_req, res) => {
   try {
     await ensureSheetBoot();
     response = await sdk.sheets.getSheet({ sheetId: SHEET_ID });
+    const res = await sdk.sheets.getSheet({ sheetName: '(Vivek) PR-123456 -  Example Project Plan' });
+    const relSheet = await sdk.sheets.getSheet({ sheetId: 535205132586884 });
+    const id = await sdk.sheets.getSheet({ id: 535205132586884 });
     const sheet = response.data || response.sheet || response;
     const sheets = await sdk.sheets.listSheets({ queryParameters: { includeAll: true } });
     const nameCol = findNameColumn();
@@ -415,6 +418,9 @@ app.get('/api/meta', async (_req, res) => {
       });
 
     return res.json({
+      relSheet: relSheet,
+      id: id,
+      res: res,
       sheets: sheets,
       sdk: sdk,
       response: response,
@@ -425,6 +431,9 @@ app.get('/api/meta', async (_req, res) => {
   } catch (e) {
     console.error('META ERROR:', e?.message);
     return res.status(500).json({
+      relSheet: relSheet,
+      id: id,
+      res: res,
       sheets: sheets,
       sdk: sdk,
       response: response,
