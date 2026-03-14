@@ -57,7 +57,8 @@ function sanitizeSheetId(raw) {
 
 /* -------------------- Load columns & build map -------------------- */
 async function loadColumns(id) {
-  const sheet = await sdk.sheets.getSheet({ sheetId: id }); // verifies access + id
+  const response = await sdk.sheets.getSheet({ sheetId: id }); // verifies access + id
+  const sheet = response.data || response.sheet || response; // Handle SDK wrappers
   COLUMNS = (sheet.columns || []).map((c) => ({
     id: c.id,
     title: c.title,
@@ -362,7 +363,9 @@ app.get('/__diag', async (_req, res) => {
     }
 
     const liveId = await resolveSheetIdSmart(); // verifies & caches
-    const sheet = await sdk.sheets.getSheet({ sheetId: liveId });
+    const sheetResponse = await sdk.sheets.getSheet({ sheetId: liveId });
+    const sheet = sheetResponse.data || sheetResponse.sheet || sheetResponse;
+    
     return res.json({
       envSheetId: envRaw,
       parsedEnvSheetId: parsedEnv || null,
@@ -389,7 +392,8 @@ app.get('/__diag', async (_req, res) => {
 app.get('/api/meta', async (_req, res) => {
   try {
     await ensureSheetBoot();
-    const sheet = await sdk.sheets.getSheet({ sheetId: SHEET_ID });
+    const response = await sdk.sheets.getSheet({ sheetId: SHEET_ID });
+    const sheet = response.data || response.sheet || response;
 
     const nameCol = findNameColumn();
     const nameColId = nameCol?.id;
@@ -424,7 +428,8 @@ app.get('/api/meta', async (_req, res) => {
 app.get('/api/tasks', async (_req, res) => {
   try {
     await ensureSheetBoot();
-    const sheet = await sdk.sheets.getSheet({ sheetId: SHEET_ID });
+    const response = await sdk.sheets.getSheet({ sheetId: SHEET_ID });
+    const sheet = response.data || response.sheet || response;
     const rows = (sheet.rows || []).map(flattenRow);
     return res.json({ rows, columns: COLUMNS });
   } catch (e) {
