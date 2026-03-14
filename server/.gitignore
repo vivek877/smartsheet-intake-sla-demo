@@ -1,4 +1,7 @@
 node_modules/
 .env
+requests.http
+test-runner.js
+test-smartsheet.js
 .env.local
 .DS_Store
