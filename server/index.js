@@ -57,7 +57,7 @@ function sanitizeSheetId(raw) {
 
 /* -------------------- Load columns & build map -------------------- */
 async function loadColumns(id) {
-  const sheet = await sdk.sheets.getSheet({ id }); // verifies access + id
+  const sheet = await sdk.sheets.getSheet({ sheetId: id }); // verifies access + id
   COLUMNS = (sheet.columns || []).map((c) => ({
     id: c.id,
     title: c.title,
@@ -84,7 +84,7 @@ async function resolveSheetIdSmart() {
   const envId = sanitizeSheetId(process.env.SHEET_ID);
   if (envId) {
     try {
-      await sdk.sheets.getSheet({ id: envId }); // verify id works with token
+      await sdk.sheets.getSheet({ sheetId: envId }); // verify id works with token
       SHEET_ID = envId;
       console.log('Using SHEET_ID:', SHEET_ID);
       return SHEET_ID;
@@ -106,7 +106,7 @@ async function resolveSheetIdSmart() {
         `Sheet named "${SHEET_NAME}" not found for this token. Set a valid SHEET_ID.`
       );
     // verify we can open it
-    await sdk.sheets.getSheet({ id: found.id });
+    await sdk.sheets.getSheet({ sheetId: found.id });
     SHEET_ID = found.id;
     console.log('Resolved SHEET_ID from name ->', SHEET_ID);
     return SHEET_ID;
@@ -299,7 +299,7 @@ app.get('/__diag', async (_req, res) => {
     const envRaw = process.env.SHEET_ID || null;
     const parsedEnv = sanitizeSheetId(envRaw);
     const liveId = await resolveSheetIdSmart(); // verifies & caches
-    const sheet = await sdk.sheets.getSheet({ id: liveId });
+    const sheet = await sdk.sheets.getSheet({ sheetId: liveId });
     return res.json({
       envSheetId: envRaw,
       parsedEnvSheetId: parsedEnv || null,
@@ -321,7 +321,7 @@ app.get('/__diag', async (_req, res) => {
 app.get('/api/meta', async (_req, res) => {
   try {
     await ensureSheetBoot();
-    const sheet = await sdk.sheets.getSheet({ id: SHEET_ID });
+    const sheet = await sdk.sheets.getSheet({ sheetId: SHEET_ID });
 
     const nameCol = findNameColumn();
     const nameColId = nameCol?.id;
@@ -356,7 +356,7 @@ app.get('/api/meta', async (_req, res) => {
 app.get('/api/tasks', async (_req, res) => {
   try {
     await ensureSheetBoot();
-    const sheet = await sdk.sheets.getSheet({ id: SHEET_ID });
+    const sheet = await sdk.sheets.getSheet({ sheetId: SHEET_ID });
     const rows = (sheet.rows || []).map(flattenRow);
     return res.json({ rows, columns: COLUMNS });
   } catch (e) {
@@ -390,12 +390,13 @@ app.post('/api/tasks', async (req, res) => {
     };
 
     const result = await sdk.sheets.addRows({
-      id: SHEET_ID,
+      sheetId: SHEET_ID,
       body: [payload],
     });
 
+    const rows = result.result || result; // Smartsheet SDK returns { message, result: [...] }
     const created =
-      (Array.isArray(result) && result[0]) || result?.[0] || null;
+      (Array.isArray(rows) && rows[0]) || rows?.[0] || null;
     return res.status(201).json(created ? { id: created.id } : { ok: true });
   } catch (e) {
     console.error('CREATE ERROR:', e?.message);
@@ -428,11 +429,12 @@ app.patch('/api/tasks/:rowId', async (req, res) => {
     ];
 
     const result = await sdk.sheets.updateRows({
-      id: SHEET_ID,
+      sheetId: SHEET_ID,
       body,
     });
 
-    const updated = Array.isArray(result) ? result.length : 0;
+    const rows = result.result || result;
+    const updated = Array.isArray(rows) ? rows.length : 0;
     return res.json({ ok: true, updated });
   } catch (e) {
     console.error('UPDATE ERROR:', e?.message);
@@ -445,7 +447,7 @@ app.delete('/api/tasks/:rowId', async (req, res) => {
   try {
     await ensureSheetBoot();
     const rowId = Number(req.params.rowId);
-    const row = await sdk.sheets.getRow({ id: SHEET_ID, rowId });
+    const row = await sdk.sheets.getRow({ sheetId: SHEET_ID, rowId });
 
     if (!row.parentId) {
       return res
@@ -453,7 +455,7 @@ app.delete('/api/tasks/:rowId', async (req, res) => {
         .json({ message: 'Cannot delete a phase (top-level row)' });
     }
 
-    await sdk.sheets.deleteRows({ id: SHEET_ID, rowIds: String(rowId) });
+    await sdk.sheets.deleteRows({ sheetId: SHEET_ID, rowIds: String(rowId) });
     return res.json({ ok: true });
   } catch (e) {
     console.error('DELETE ERROR:', e?.message);
