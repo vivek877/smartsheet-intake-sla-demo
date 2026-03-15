@@ -43,6 +43,7 @@ const PORT = Number(process.env.PORT || 4000);
 
 /* -------------------- In‑memory cache -------------------- */
 let SHEET_ID; // resolved numeric id (valid after ensureSheetBoot)
+let SHEET_DATA = null; // Full Smartsheet data (columns + rows)
 let COLUMNS = []; // [{id,title,type,options?,systemColumnType?,primary?,contactOptions?}]
 let COLUMN_BY_TITLE = new Map(); // normalized title -> column
 
@@ -57,8 +58,16 @@ function sanitizeSheetId(raw) {
 
 /* -------------------- Load columns & build map -------------------- */
 async function loadColumns(id) {
-  const response = await sdk.sheets.getSheet({ sheetId: id }); // Reverting to sheetId as requested
+  // Using 'id' parameter as per your latest SDK guide snippet
+  // Also using include: 'objectValue' to get full details (emails, IDs)
+  const response = await sdk.sheets.getSheet({ 
+    id: id, 
+    queryParameters: { include: 'objectValue' } 
+  }); 
   const sheet = response.data || response.sheet || response; // Handle SDK wrappers
+  
+  SHEET_DATA = sheet; // Store globally to prevent redundant API calls
+  
   console.log('sheet columns:', sheet.columns ? sheet.columns.length : 'none');
   COLUMNS = (sheet.columns || []).map((c) => ({
     id: c.id,
@@ -87,7 +96,7 @@ async function resolveSheetIdSmart() {
   let getEnvErr = null;
   if (envId) {
     try {
-      await sdk.sheets.getSheet({ sheetId: envId }); // verify id works with token
+      await sdk.sheets.getSheet({ id: envId }); // verify id works with token
       SHEET_ID = envId;
       console.log('Using explicit numeric SHEET_ID:', SHEET_ID);
       return SHEET_ID;
@@ -125,7 +134,7 @@ async function resolveSheetIdSmart() {
 
     try {
       // verify we can open it
-      await sdk.sheets.getSheet({ sheetId: found.id });
+      await sdk.sheets.getSheet({ id: found.id });
       SHEET_ID = found.id;
       console.log('Resolved SHEET_ID from name ->', SHEET_ID);
       return SHEET_ID;
@@ -141,9 +150,12 @@ async function resolveSheetIdSmart() {
 }
 
 /* -------------------- Ensure boot (id + columns) -------------------- */
-async function ensureSheetBoot() {
+async function ensureSheetBoot(forceRefresh = false) {
   await resolveSheetIdSmart();
-  if (!COLUMNS.length) await loadColumns(SHEET_ID);
+  // Ensure we have SHEET_DATA cached
+  if (!SHEET_DATA || forceRefresh) {
+    await loadColumns(SHEET_ID);
+  }
 }
 
 /* -------------------- Column utilities -------------------- */
@@ -394,12 +406,11 @@ app.get(['/__diag', '/api/__diag'], async (_req, res) => {
 
 /* -------------------- API: META -------------------- */
 app.get('/api/meta', async (_req, res) => {
-  let response = null; // Declare outside try for catch access
+  let response = null; 
   try {
     await ensureSheetBoot();
-    response = await sdk.sheets.getSheet({ sheetId: SHEET_ID });
-    const sheet = response.data || response.sheet || response;
-
+    const sheet = SHEET_DATA; 
+    
     const nameCol = findNameColumn();
     const nameColId = nameCol?.id;
 
@@ -415,18 +426,17 @@ app.get('/api/meta', async (_req, res) => {
       });
 
     return res.json({
-      response: response,
       sheetId: SHEET_ID,
       columns: COLUMNS,
       phases,
+      sheetData: SHEET_DATA // Full metadata, rows, and columns
     });
   } catch (e) {
     console.error('META ERROR:', e?.message);
     return res.status(500).json({
-      response: response,
       message: e?.message || 'Internal Error (meta)',
-      hint:
-        'Verify token & sheet access; meta reads sheet then maps the primary/name column.',
+      error: e?.name || 'Error',
+      hint: 'Verify token & sheet access in Render environment variables.'
     });
   }
 });
@@ -434,9 +444,8 @@ app.get('/api/meta', async (_req, res) => {
 /* -------------------- API: LIST -------------------- */
 app.get('/api/tasks', async (_req, res) => {
   try {
-    await ensureSheetBoot();
-    const response = await sdk.sheets.getSheet({ sheetId: SHEET_ID });
-    const sheet = response.data || response.sheet || response;
+    await ensureSheetBoot(true); // Force refresh to get latest data
+    const sheet = SHEET_DATA;
     const rows = (sheet.rows || []).map(flattenRow);
     return res.json({ rows, columns: COLUMNS });
   } catch (e) {
