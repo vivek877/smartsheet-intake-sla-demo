@@ -43,6 +43,7 @@ const PORT = Number(process.env.PORT || 4000);
 
 /* -------------------- In‑memory cache -------------------- */
 let SHEET_ID; // resolved numeric id (valid after ensureSheetBoot)
+let SHEET_DATA = null; // Full Smartsheet data (columns + rows) - Cached for performance
 let COLUMNS = []; // [{id,title,type,options?,systemColumnType?,primary?,contactOptions?}]
 let COLUMN_BY_TITLE = new Map(); // normalized title -> column
 
@@ -57,8 +58,17 @@ function sanitizeSheetId(raw) {
 
 /* -------------------- Load columns & build map -------------------- */
 async function loadColumns(id) {
-  const response = await sdk.sheets.getSheet({ sheetId: id }); // Reverting to sheetId as requested
+  const response = await sdk.sheets.getSheet({ 
+    sheetId: id,
+    queryParameters: { 
+      include: 'objectValue,attachments,discussions',
+      includeAll: true 
+    } 
+  }); 
   const sheet = response.data || response.sheet || response; // Handle SDK wrappers
+  
+  SHEET_DATA = sheet; // Cache the full sheet so other APIs don't have to fetch it again
+  
   console.log('sheet columns:', sheet.columns ? sheet.columns.length : 'none');
   COLUMNS = (sheet.columns || []).map((c) => ({
     id: c.id,
@@ -124,7 +134,7 @@ async function resolveSheetIdSmart() {
     }
 
     try {
-      // verify we can open it
+      // verified that sheetId is the correct key for this token in diag
       await sdk.sheets.getSheet({ sheetId: found.id });
       SHEET_ID = found.id;
       console.log('Resolved SHEET_ID from name ->', SHEET_ID);
@@ -141,9 +151,12 @@ async function resolveSheetIdSmart() {
 }
 
 /* -------------------- Ensure boot (id + columns) -------------------- */
-async function ensureSheetBoot() {
+async function ensureSheetBoot(forceRefresh = false) {
   await resolveSheetIdSmart();
-  if (!COLUMNS.length) await loadColumns(SHEET_ID);
+  // If we don't have the sheet data yet, or if a refresh is requested, load it
+  if (!SHEET_DATA || forceRefresh) {
+    await loadColumns(SHEET_ID);
+  }
 }
 
 /* -------------------- Column utilities -------------------- */
@@ -394,11 +407,9 @@ app.get(['/__diag', '/api/__diag'], async (_req, res) => {
 
 /* -------------------- API: META -------------------- */
 app.get('/api/meta', async (_req, res) => {
-  let response = null; // Declare outside try for catch access
   try {
     await ensureSheetBoot();
-    response = await sdk.sheets.getSheet({ sheetId: SHEET_ID });
-    const sheet = response.data || response.sheet || response;
+    const sheet = SHEET_DATA; // Use the cached data from the guide-aligned getSheet call
 
     const nameCol = findNameColumn();
     const nameColId = nameCol?.id;
@@ -415,18 +426,16 @@ app.get('/api/meta', async (_req, res) => {
       });
 
     return res.json({
-      response: response,
       sheetId: SHEET_ID,
       columns: COLUMNS,
       phases,
+      sheetData: SHEET_DATA // Returns the full data from the Smartsheet Guide!
     });
   } catch (e) {
     console.error('META ERROR:', e?.message);
     return res.status(500).json({
-      response: response,
       message: e?.message || 'Internal Error (meta)',
-      hint:
-        'Verify token & sheet access; meta reads sheet then maps the primary/name column.',
+      error: e?.name || 'Error'
     });
   }
 });
@@ -434,9 +443,8 @@ app.get('/api/meta', async (_req, res) => {
 /* -------------------- API: LIST -------------------- */
 app.get('/api/tasks', async (_req, res) => {
   try {
-    await ensureSheetBoot();
-    const response = await sdk.sheets.getSheet({ sheetId: SHEET_ID });
-    const sheet = response.data || response.sheet || response;
+    await ensureSheetBoot(true); // Force refresh to get latest rows for the task list
+    const sheet = SHEET_DATA;
     const rows = (sheet.rows || []).map(flattenRow);
     return res.json({ rows, columns: COLUMNS });
   } catch (e) {
