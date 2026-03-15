@@ -58,17 +58,18 @@ function sanitizeSheetId(raw) {
 
 /* -------------------- Load columns & build map -------------------- */
 async function loadColumns(id) {
-  const response = await sdk.sheets.getSheet({ 
-    sheetId: id,
-    queryParameters: { 
-      include: 'objectValue,attachments,discussions',
-      includeAll: true 
-    } 
-  }); 
-  const sheet = response.data || response.sheet || response; // Handle SDK wrappers
+  // Correct method for: https://api.smartsheet.com/2.0/sheets/{sheetId}
+  const response = await sdk.sheets.getSheet({
+    sheetId: Number(id),
+    queryParameters: {
+      include: 'objectValue,attachments,discussions'
+    }
+  });
+  const sheet = response.data || response.sheet || response; 
   
-  SHEET_DATA = sheet; // Cache the full sheet so other APIs don't have to fetch it again
-  
+  SHEET_DATA = sheet; // Cache the full sheet for performance
+  // so other APIs don't have to fetch it again
+
   console.log('sheet columns:', sheet.columns ? sheet.columns.length : 'none');
   COLUMNS = (sheet.columns || []).map((c) => ({
     id: c.id,
@@ -377,8 +378,8 @@ app.get(['/__diag', '/api/__diag'], async (_req, res) => {
       listSheetsTest = `Failed to listSheets: ${errList.message}`;
     }
 
-    const liveId = await resolveSheetIdSmart(); // verifies & caches
-    sheetResponse = await sdk.sheets.getSheet({ sheetId: liveId });
+    const liveId = await resolveSheetIdSmart(); 
+    sheetResponse = await sdk.sheets.getSheet({ sheetId: Number(liveId) });
     const sheet = sheetResponse.data || sheetResponse.sheet || sheetResponse;
 
     return res.json({
