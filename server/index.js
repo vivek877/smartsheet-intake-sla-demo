@@ -21,12 +21,24 @@ const app = express();
 const ORIGINS_ENV = process.env.ALLOWED_ORIGINS || process.env.ALLOWED_ORIGIN || '*';
 const ORIGINS = ORIGINS_ENV.split(',').map((s) => s.trim());
 
+// app.use(cors({
+//   origin: (origin, cb) => {
+//     if (ORIGINS.includes('*') || !origin || ORIGINS.includes(origin)) return cb(null, true);
+//     return cb(new Error('CORS blocked'), false);
+//   }
+// }));
+
 app.use(cors({
   origin: (origin, cb) => {
     if (ORIGINS.includes('*') || !origin || ORIGINS.includes(origin)) return cb(null, true);
     return cb(new Error('CORS blocked'), false);
-  }
+  },
+  methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
 }));
+
+// Make sure OPTIONS preflight succeeds
+app.options('*', cors());
 
 app.use(express.json());
 app.use((_req, res, next) => {
@@ -44,9 +56,9 @@ const SHEET_NAME = (process.env.SHEET_NAME || '').trim();
 const PORT = Number(process.env.PORT || 4000);
 
 /* -------------------- State (Caching) -------------------- */
-let SHEET_ID;   
-let SHEET_DATA = null; 
-let COLUMNS = [];      
+let SHEET_ID;
+let SHEET_DATA = null;
+let COLUMNS = [];
 let COLUMN_BY_TITLE = new Map();
 
 /**
@@ -63,7 +75,7 @@ function sanitizeSheetId(raw) {
  */
 async function loadColumns(id) {
   const sheet = await sdk.sheets.getSheet(id);
-  SHEET_DATA = sheet; 
+  SHEET_DATA = sheet;
   COLUMNS = (sheet.columns || []).map((c) => ({
     id: c.id,
     title: c.title,
@@ -155,7 +167,7 @@ app.get('/api/meta', async (_req, res) => {
 
 app.get('/api/tasks', async (_req, res) => {
   try {
-    await ensureSheetBoot(true); 
+    await ensureSheetBoot(true);
     const rows = (SHEET_DATA.rows || []).map(r => flattenRow(r, COLUMNS));
     return res.json({ rows, columns: COLUMNS });
   } catch (e) {
@@ -220,7 +232,7 @@ app.get('/api/contacts', async (req, res) => {
     let contacts = (contactCol?.contactOptions || []).map(c => ({
       id: c.email, name: c.name || c.email, email: c.email
     }));
-    
+
     if (!contacts.length) {
       contacts = [
         { id: 'allen.mitchell@example.com', name: 'Allen Mitchell', email: 'allen.mitchell@example.com' },
