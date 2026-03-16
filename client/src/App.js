@@ -8,7 +8,7 @@ import {
   updateTask,
   deleteTask,
   getContacts
-} from './api.mock';
+} from './api.real';
 
 import ContactMultiSelect from './components/ContactMultiSelect';
 

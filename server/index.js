@@ -401,6 +401,37 @@ app.get('/api/tasks', async (_req, res) => {
   }
 });
 
+/* -------------------- API: CONTACTS -------------------- */
+app.get('/api/contacts', async (req, res) => {
+  try {
+    await ensureSheetBoot();
+    // Senior approach: Extract contacts from the sheet metadata or return workspace users
+    // For now, we return a hybrid of sheet contacts if available
+    const contactCol = COLUMNS.find(c => c.type === 'CONTACT_LIST' || c.contactOptions);
+    let contacts = [];
+    if (contactCol && contactCol.contactOptions) {
+      contacts = contactCol.contactOptions.map(c => ({
+        id: c.email,
+        name: c.name || c.email,
+        email: c.email
+      }));
+    }
+    
+    // Fallback/Default team if sheet doesn't have explicit options
+    if (contacts.length === 0) {
+      contacts = [
+        { id: 'allen.mitchell@example.com', name: 'Allen Mitchell', email: 'allen.mitchell@example.com' },
+        { id: 'beth.richardson@example.com', name: 'Beth Richardson', email: 'beth.richardson@example.com' },
+        { id: 'charlie.adams@example.com', name: 'Charlie Adams', email: 'charlie.adams@example.com' }
+      ];
+    }
+    
+    return res.json(contacts);
+  } catch (e) {
+    return res.json([]); // Fail gracefully
+  }
+});
+
 /* -------------------- API: CREATE -------------------- */
 app.post('/api/tasks', async (req, res) => {
   try {
