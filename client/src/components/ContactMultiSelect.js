@@ -1,173 +1,184 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 /**
- * ContactMultiSelect
- * props:
- *  - contacts: [{ name, email, color }]
- *  - value: string[] (emails)
- *  - onChange: (emails[]) => void
- *  - placeholder?: string
+ * ContactMultiSelect Component
+ * 
+ * An enterprise-grade, accessible multi-select dropdown designed for team member assignment.
+ * Supports keyword filtering, keyboard navigation (ARROWS/ENTER/ESC), and visual indicators.
+ * 
+ * @param {Object[]} props.contacts - List of available contacts [{ name, email, color }]
+ * @param {string[]} props.value - Array of selected contact emails
+ * @param {Function} props.onChange - Callback function for selection changes
+ * @param {string} props.placeholder - Placeholder text when no contacts are selected
  */
-export default function ContactMultiSelect({ contacts = [], value = [], onChange, placeholder = 'Select assignees…' }) {
+export default function ContactMultiSelect({ 
+  contacts = [], 
+  value = [], 
+  onChange, 
+  placeholder = 'Select assignees…' 
+}) {
   const [open, setOpen] = useState(false);
-  const [q, setQ] = useState('');
-  const [active, setActive] = useState(0);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeIndex, setActiveIndex] = useState(0);
+  
   const boxRef = useRef(null);
   const listRef = useRef(null);
   const inputRef = useRef(null);
 
-  const selected = Array.isArray(value) ? value : (value ? [value] : []);
+  const selectedEmails = Array.isArray(value) ? value : (value ? [value] : []);
 
+  // Standard click-outside detection for dropdown dismissal
   useEffect(() => {
-    const onDown = (e) => {
+    const handleOutsideClick = (e) => {
       if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false);
     };
-    window.addEventListener('mousedown', onDown);
-    return () => window.removeEventListener('mousedown', onDown);
+    window.addEventListener('mousedown', handleOutsideClick);
+    return () => window.removeEventListener('mousedown', handleOutsideClick);
   }, []);
 
-  const filtered = useMemo(() => {
-    const term = q.trim().toLowerCase();
+  // Filtered contact list based on user input
+  const filteredContacts = useMemo(() => {
+    const term = searchQuery.trim().toLowerCase();
     if (!term) return contacts;
     return contacts.filter(c =>
       c.name.toLowerCase().includes(term) ||
       (c.email || '').toLowerCase().includes(term)
     );
-  }, [q, contacts]);
+  }, [searchQuery, contacts]);
 
+  // Focus management when dropdown opens
   useEffect(() => {
     if (!open) return;
-    setActive(0);
+    setActiveIndex(0);
     setTimeout(() => inputRef.current?.focus(), 0);
   }, [open]);
 
-  function toggle() {
-    setOpen((v) => !v);
-  }
+  const toggleDropdown = () => setOpen((prev) => !prev);
 
-  function toggleOne(email) {
+  /**
+   * Toggles selection state for a specific contact.
+   */
+  function handleSelectToggle(email) {
     if (!onChange) return;
-    if (selected.includes(email)) {
-      onChange(selected.filter(v => v !== email));
-    } else {
-      onChange([...selected, email]);
-    }
+    const isSelected = selectedEmails.includes(email);
+    const updatedSelection = isSelected 
+      ? selectedEmails.filter(v => v !== email) 
+      : [...selectedEmails, email];
+    onChange(updatedSelection);
   }
 
-  function onKeyDown(e) {
+  /**
+   * Handles keyboard navigation and accessibility events.
+   */
+  function handleKeyDown(e) {
     if (!open) return;
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      setActive((i) => Math.min(i + 1, filtered.length - 1));
-      scrollIntoView(active + 1);
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      setActive((i) => Math.max(i - 1, 0));
-      scrollIntoView(active - 1);
-    } else if (e.key === 'Enter') {
-      e.preventDefault();
-      const pick = filtered[active];
-      if (pick) toggleOne(pick.email);
-    } else if (e.key === 'Escape') {
-      setOpen(false);
+
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        setActiveIndex((i) => Math.min(i + 1, filteredContacts.length - 1));
+        syncScrollState(activeIndex + 1);
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        setActiveIndex((i) => Math.max(i - 1, 0));
+        syncScrollState(activeIndex - 1);
+        break;
+      case 'Enter':
+        e.preventDefault();
+        const pick = filteredContacts[activeIndex];
+        if (pick) handleSelectToggle(pick.email);
+        break;
+      case 'Escape':
+        setOpen(false);
+        break;
+      default:
+        break;
     }
   }
 
-  function scrollIntoView(idx) {
+  /**
+   * Synchronizes scroll position with active keyboard selection.
+   */
+  function syncScrollState(idx) {
     const container = listRef.current;
     if (!container) return;
     const item = container.querySelector(`[data-index="${idx}"]`);
-    if (item && container) {
+    if (item) {
       const cTop = container.scrollTop;
       const cBottom = cTop + container.clientHeight;
       const iTop = item.offsetTop;
       const iBottom = iTop + item.offsetHeight;
+
       if (iBottom > cBottom) container.scrollTop = iBottom - container.clientHeight;
       else if (iTop < cTop) container.scrollTop = iTop;
     }
   }
 
   return (
-    <div className="cmulti" ref={boxRef} style={{ position: 'relative' }}>
-      {/* chips */}
-      <div className="cmulti__chips" onClick={toggle}>
-        {selected.length === 0 && <span style={{ color: 'var(--muted)' }}>{placeholder}</span>}
-        {selected.map(email => {
-          const c = contacts.find(x => x.email === email);
-          const initials = c ? c.name.split(' ').map(p => p[0]).join('').slice(0, 2).toUpperCase() : '?';
+    <div className="contact-selector" ref={boxRef} style={{ position: 'relative' }}>
+      {/* Visual Chips Container */}
+      <div className="selector-chips" onClick={toggleDropdown}>
+        {selectedEmails.length === 0 && (
+          <span className="placeholder-text">{placeholder}</span>
+        )}
+        {selectedEmails.map(email => {
+          const contact = contacts.find(x => x.email === email);
+          const initials = contact 
+            ? contact.name.split(' ').map(p => p[0]).join('').slice(0, 2).toUpperCase() 
+            : '?';
+          
           return (
-            <span key={email} className="cmulti__chip" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <span style={{
-                width: 18, height: 18, borderRadius: '50%',
-                background: c?.color || '#888', color: '#fff',
-                display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 10
-              }}>{initials}</span>
-              <span style={{ fontSize: 12 }}>{c ? c.name : email}</span>
-              <span style={{ marginLeft: 4, cursor: 'pointer' }}
-                onClick={(e) => { e.stopPropagation(); toggleOne(email); }}>✕</span>
+            <span key={email} className="contact-chip">
+              <span className="chip-avatar" style={{ background: contact?.color || 'var(--muted)' }}>
+                {initials}
+              </span>
+              <span className="chip-label">{contact ? contact.name : email}</span>
+              <span className="chip-remove" onClick={(e) => { 
+                e.stopPropagation(); 
+                handleSelectToggle(email); 
+              }}>✕</span>
             </span>
           );
         })}
-        <span className="cmulti__caret" style={{ marginLeft: 'auto', opacity: .6 }}>▾</span>
+        <span className="selector-caret">▾</span>
       </div>
 
-      {/* dropdown */}
+      {/* Selection Dropdown */}
       {open && (
-        <div
-          className="cmulti__dropdown"
-          style={{
-            position: 'absolute',
-            marginTop: 6,
-            background: 'var(--panel)',
-            border: '1px solid var(--border)',
-            borderRadius: 10,
-            padding: 8,
-            boxShadow: 'var(--shadow)'
-          }}
-          onKeyDown={onKeyDown}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-            <span style={{ opacity: .6 }}>🔎</span>
+        <div className="selector-dropdown" onKeyDown={handleKeyDown}>
+          <div className="dropdown-search">
+            <span className="search-icon">🔎</span>
             <input
               ref={inputRef}
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Search people…"
-              style={{
-                width: '100%', border: '1px solid var(--border)', borderRadius: 8,
-                padding: '6px 8px', background: 'var(--chip)'
-              }}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search team members…"
             />
           </div>
 
-          <div ref={listRef} style={{ maxHeight: 300, overflowY: 'auto' }}>
-            {filtered.length === 0 && (
-              <div style={{ padding: 8, color: 'var(--muted)' }}>No matches</div>
+          <div className="dropdown-list" ref={listRef}>
+            {filteredContacts.length === 0 && (
+              <div className="no-matches">No team members matched your search</div>
             )}
-            {filtered.map((c, idx) => {
-              const checked = selected.includes(c.email);
-              const initials = c.name.split(' ').map(p => p[0]).join('').slice(0, 2).toUpperCase();
+            {filteredContacts.map((contact, idx) => {
+              const isSelected = selectedEmails.includes(contact.email);
+              const initials = contact.name.split(' ').map(p => p[0]).join('').slice(0, 2).toUpperCase();
+              
               return (
                 <div
-                  key={c.email}
+                  key={contact.email}
                   data-index={idx}
-                  onClick={() => toggleOne(c.email)}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 10,
-                    padding: '6px 8px', borderRadius: 8, cursor: 'pointer',
-                    background: idx === active ? 'rgba(66,104,247,0.08)' : 'transparent'
-                  }}
-                  className="cmulti__option"
+                  onClick={() => handleSelectToggle(contact.email)}
+                  className={`list-item ${idx === activeIndex ? 'item-active' : ''}`}
                 >
-                  <input type="checkbox" checked={checked} readOnly />
-                  <div style={{
-                    width: 24, height: 24, borderRadius: '50%',
-                    background: c.color, color: '#fff',
-                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11
-                  }}>{initials}</div>
-                  <div>
-                    <div>{c.name}</div>
-                    <div style={{ fontSize: 12, color: 'var(--muted)' }}>{c.email}</div>
+                  <input type="checkbox" checked={isSelected} readOnly />
+                  <div className="item-avatar" style={{ background: contact.color }}>
+                    {initials}
+                  </div>
+                  <div className="item-details">
+                    <div className="item-name">{contact.name}</div>
+                    <div className="item-email">{contact.email}</div>
                   </div>
                 </div>
               );

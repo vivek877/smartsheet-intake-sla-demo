@@ -1,6 +1,16 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
-// 👉 mock API for the demo UI; later switch to ./api.real
+/**
+ * Smartsheet Intake & SLA Demo - Frontend Application
+ * 
+ * Provides a React-based interface for managing Smartsheet project data.
+ * Features:
+ * - Real-time task synchronization
+ * - Dynamic Gantt-style table view
+ * - Inline and modal-based editing
+ * - Role-based contact multi-selection
+ */
+
 import {
   getMeta,
   getTasks,
@@ -12,7 +22,11 @@ import {
 
 import ContactMultiSelect from './components/ContactMultiSelect';
 
-/* ======================= Theming (optional toggle) ======================= */
+/* -------------------- State Management Hooks -------------------- */
+
+/**
+ * Custom hook for theme management (Light/Dark mode)
+ */
 function useTheme() {
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'light');
   const resolved =
@@ -28,7 +42,11 @@ function useTheme() {
   return { theme, setTheme, resolved, toggle: () => setTheme(resolved === 'dark' ? 'light' : 'dark') };
 }
 
-/* ======================= Render helpers ======================= */
+/* -------------------- UI Utility Functions -------------------- */
+
+/**
+ * Returns CSS class based on task status strings.
+ */
 const statusClass = (s) => {
   const v = (String(s || '').toLowerCase());
   if (v.includes('progress')) return 'status-progress';
@@ -37,6 +55,9 @@ const statusClass = (s) => {
   return 'status-queue';
 };
 
+/**
+ * Returns CSS class based on health marker strings.
+ */
 const healthClass = (h) => {
   const v = (String(h || '').toLowerCase());
   if (v.includes('green')) return 'health-green';
@@ -45,7 +66,9 @@ const healthClass = (h) => {
   return 'health-blue';
 };
 
-// Business days (Mon–Fri) from today to end (yyyy-mm-dd or ISO) if cell missing
+/**
+ * Calculates remaining business days (Mon-Fri) from current date to target end date.
+ */
 function bizDaysFromToday(endValue) {
   if (!endValue) return '';
   const d = new Date(endValue);
@@ -56,7 +79,7 @@ function bizDaysFromToday(endValue) {
   const dir = d >= today ? 1 : -1;
   let count = 0; let cur = new Date(today);
   while ((dir > 0 && cur <= d) || (dir < 0 && cur >= d)) {
-    const day = cur.getDay(); // 0 Sun ... 6 Sat
+    const day = cur.getDay(); 
     if (day !== 0 && day !== 6) count += dir;
     cur.setDate(cur.getDate() + dir);
   }
@@ -65,7 +88,8 @@ function bizDaysFromToday(endValue) {
 
 const cellVal = (row, title) => (row?.cells?.[title]?.value ?? '');
 
-/* ======================= Small Field wrapper ======================= */
+/* -------------------- Component Wrappers -------------------- */
+
 function Field({ label, children, style }) {
   return (
     <div style={{ margin: '10px 0', ...style }}>
@@ -75,7 +99,11 @@ function Field({ label, children, style }) {
   );
 }
 
-/* ======================= Add Task Modal ======================= */
+/* -------------------- Modal Components -------------------- */
+
+/**
+ * Presentation component for adding a new task into a specific phase.
+ */
 function AddModal({ phases, contacts, onClose, onCreate }) {
   const [form, setForm] = useState({
     taskName: '',
@@ -98,14 +126,14 @@ function AddModal({ phases, contacts, onClose, onCreate }) {
       }}>
         <h3 style={{ marginTop: 0 }}>Add New Task</h3>
 
-        <Field label="Primary">
+        <Field label="Task Name">
           <input
             value={form.taskName}
             onChange={(e) => setForm({ ...form, taskName: e.target.value })}
           />
         </Field>
 
-        <Field label="Phase">
+        <Field label="Parent Phase">
           <select
             value={form.phaseRowId}
             onChange={(e) => setForm({ ...form, phaseRowId: e.target.value })}
@@ -117,7 +145,7 @@ function AddModal({ phases, contacts, onClose, onCreate }) {
           </select>
         </Field>
 
-        <Field label="Assigned To">
+        <Field label="Assigned Team Members">
           <ContactMultiSelect
             contacts={contacts}
             value={form.assignedTo}
@@ -126,14 +154,14 @@ function AddModal({ phases, contacts, onClose, onCreate }) {
         </Field>
 
         <div style={{ display: 'flex', gap: 10 }}>
-          <Field label="Start Date" style={{ flex: 1 }}>
+          <Field label="Scheduled Start" style={{ flex: 1 }}>
             <input
               type="date"
               value={form.start}
               onChange={(e) => setForm({ ...form, start: e.target.value })}
             />
           </Field>
-          <Field label="End Date" style={{ flex: 1 }}>
+          <Field label="Scheduled End" style={{ flex: 1 }}>
             <input
               type="date"
               value={form.end}
@@ -142,7 +170,7 @@ function AddModal({ phases, contacts, onClose, onCreate }) {
           </Field>
         </div>
 
-        <Field label="% Complete">
+        <Field label="Completion Percentage">
           <input
             type="number"
             min={0}
@@ -157,12 +185,12 @@ function AddModal({ phases, contacts, onClose, onCreate }) {
           <button
             className="btn btn-primary"
             onClick={() => {
-              if (!form.phaseRowId) { alert('Select Phase'); return; }
-              if (!form.taskName.trim()) { alert('Primary name required'); return; }
+              if (!form.phaseRowId) { alert('Please select a phase'); return; }
+              if (!form.taskName.trim()) { alert('Task name is required'); return; }
               onCreate(form);
             }}
           >
-            Create
+            Create Task
           </button>
         </div>
       </div>
@@ -170,8 +198,10 @@ function AddModal({ phases, contacts, onClose, onCreate }) {
   );
 }
 
-/* ======================= Delete Confirmation Dialog ======================= */
-function ConfirmDialog({ open, title, message, confirmText = 'Delete', onCancel, onConfirm }) {
+/**
+ * Generic confirmation dialog for critical operations.
+ */
+function ConfirmDialog({ open, title, message, confirmText = 'Confirm', onCancel, onConfirm }) {
   if (!open) return null;
   return (
     <div className="modal-backdrop" onClick={onCancel} style={{
@@ -194,26 +224,27 @@ function ConfirmDialog({ open, title, message, confirmText = 'Delete', onCancel,
   );
 }
 
-/* ======================= App ======================= */
+/* -------------------- Main Application -------------------- */
+
 export default function App() {
   const { toggle } = useTheme();
 
-  const [meta, setMeta] = useState(null);            // { sheetId, columns[], phases[] }
-  const [rows, setRows] = useState([]);              // flattened rows
+  const [meta, setMeta] = useState(null);            
+  const [rows, setRows] = useState([]);              
   const [contacts, setContacts] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  const [showAdd, setShowAdd] = useState(false);     // Add modal
-  const [editRow, setEditRow] = useState(null);      // Edit drawer target row
-  const [editForm, setEditForm] = useState({});      // Edit drawer state
-  const [selected, setSelected] = useState(null);    // selected rowId (string)
-  const [q, setQ] = useState('');                    // search
+  const [showAdd, setShowAdd] = useState(false);     
+  const [editRow, setEditRow] = useState(null);      
+  const [editForm, setEditForm] = useState({});      
+  const [selected, setSelected] = useState(null);    
+  const [q, setQ] = useState('');                    
 
-  const [confirmState, setConfirmState] = useState({ open: false, row: null }); // delete confirm
+  const [confirmState, setConfirmState] = useState({ open: false, row: null }); 
 
   const searchRef = useRef(null);
 
-  // keyboard shortcuts
+  // Keyboard shortcut management
   useEffect(() => {
     const handler = (e) => {
       const tag = (e.target && e.target.tagName) || '';
@@ -252,21 +283,25 @@ export default function App() {
     return () => window.removeEventListener('keydown', handler);
   }, [selected, editRow, rows, toggle]);
 
-  // load
+  /**
+   * Initializes application data from backend services.
+   */
   async function load() {
     setLoading(true);
-    const m = await getMeta();
-    setMeta(m);
-    const t = await getTasks();
-    setRows(t.rows || []);
-    const ppl = await getContacts();
-    setContacts(ppl || []);
-    setLoading(false);
+    try {
+      const [m, t, ppl] = await Promise.all([getMeta(), getTasks(), getContacts()]);
+      setMeta(m);
+      setRows(t.rows || []);
+      setContacts(ppl || []);
+    } catch (e) {
+      console.error('Data loading failed:', e.message);
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => { load(); }, []);
 
-  // helpers
   const columns = (meta && meta.columns) || [];
   const phases = (meta && meta.phases) || [];
 
@@ -274,6 +309,9 @@ export default function App() {
     return (row?.cells?.[title]?.value ?? '');
   }
 
+  /**
+   * Hydrates the edit form with current row data.
+   */
   function seedEditForm(row) {
     setEditForm({
       primary: cellValue(row, 'Primary'),
@@ -287,7 +325,6 @@ export default function App() {
     });
   }
 
-  // children count map (for the "Children" column)
   const childrenCount = useMemo(() => {
     const map = new Map();
     for (const r of rows) {
@@ -299,7 +336,6 @@ export default function App() {
     return map;
   }, [rows]);
 
-  // search filter
   const displayRows = useMemo(() => {
     if (!q.trim()) return rows;
     const term = q.trim().toLowerCase();
@@ -308,19 +344,19 @@ export default function App() {
       const name = cellValue(r, 'Primary');
       const status = cellValue(r, 'Status');
       const health = cellValue(r, 'Health');
-      const preds = cellValue(r, 'Predecessors');
       const assigned = cellValue(r, 'Assigned To');
       const assignedStr = Array.isArray(assigned) ? assigned.join(',') : assigned;
-      return contains(name) || contains(status) || contains(health) || contains(preds) || contains(assignedStr);
+      return contains(name) || contains(status) || contains(health) || contains(assignedStr);
     });
   }, [rows, q]);
 
-  /* ======================= CRUD ======================= */
+  /* -------------------- Action Handlers -------------------- */
+  
   async function onCreate(form) {
     await createTask({
       parentId: String(form.phaseRowId),
       cells: {
-        'Primary': form.taskName || form.primary || 'New Task',
+        'Primary': form.taskName || 'New Task',
         'Assigned To': form.assignedTo || [],
         'Start Date': form.start || '',
         'End Date': form.end || '',
@@ -340,17 +376,10 @@ export default function App() {
 
   function requestDelete(rowId) {
     const row = rows.find((x) => String(x.id) === String(rowId));
-    if (!row) return;
-    if (row.isPhase) {
-      alert('Cannot delete a phase');
-      return;
-    }
+    if (!row || row.isPhase) return;
     setConfirmState({
       open: true,
-      row: {
-        id: rowId,
-        name: cellValue(row, 'Primary') || 'this task'
-      }
+      row: { id: rowId, name: cellValue(row, 'Primary') || 'this task' }
     });
   }
 
@@ -361,15 +390,10 @@ export default function App() {
     await load();
   }
 
-  async function onDelete(rowId) {
-    // not used directly anymore; keyboard Delete calls requestDelete
-    requestDelete(rowId);
-  }
-
   async function onSaveEdit() {
     if (!editRow) return;
     await updateTask(String(editRow.id), {
-      'Primary': editForm.taskName || editForm.primary || cellValue(editRow, 'Primary'),
+      'Primary': editForm.primary || cellValue(editRow, 'Primary'),
       'Assigned To': editForm.assignedTo || [],
       'Start Date': editForm.start || '',
       'End Date': editForm.end || '',
@@ -379,268 +403,190 @@ export default function App() {
     await load();
   }
 
-  if (loading) return <div className="container">Loading…</div>;
+  if (loading) return <div className="container loading-state">Initializing Dashboard…</div>;
 
   return (
     <div className="container">
 
-      {/* Header */}
-      <div className="app-header" style={{ display: 'flex', justifyContent: 'space-between', padding: 14 }}>
-        <div style={{ fontWeight: 700 }}>
-          {`PR‑123456 — Example Project Plan`}
-        </div>
-        <div style={{ display: 'flex', gap: 10 }}>
-          <button className="btn" title="Toggle dark (d)" onClick={toggle}>☾/☀︎</button>
+      <header className="app-header">
+        <div className="brand">PR‑123456 — Example Project Dashboard</div>
+        <div className="header-actions">
+          <button className="btn btn-ghost" title="Theme (D)" onClick={toggle}>☾/☀︎</button>
           <button className="btn btn-primary" onClick={() => setShowAdd(true)}>+ Add Task</button>
         </div>
-      </div>
+      </header>
 
-      {/* Toolbar / Search */}
-      <div className="toolbar">
-        <div className="searchbar">
-          <span style={{ opacity: .6 }}>🔎</span>
+      <section className="toolbar">
+        <div className="search-field">
+          <span className="icon">🔎</span>
           <input
             ref={searchRef}
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Search tasks, status, assignees… (/)"
+            placeholder="Search team members, task names, or status… (/)"
           />
-          {q && <span className="search-count">{displayRows.length} result{displayRows.length === 1 ? '' : 's'}</span>}
+          {q && <span className="results-badge">{displayRows.length} results</span>}
         </div>
-      </div>
+      </section>
 
-      {/* Table */}
-      <div className="table-wrap">
-        <table className="gantt-table">
+      <main className="table-container">
+        <table className="project-table">
           <thead>
             <tr>
-              <th style={{ width: 24 }}></th>
+              <th className="cell-indicator"></th>
               {columns.map((c) => (
                 <th key={String(c.id)}>{c.title}</th>
               ))}
-              <th>Actions</th>
+              <th className="cell-actions">Operations</th>
             </tr>
           </thead>
           <tbody>
             {displayRows.map((row) => (
               <tr
                 key={String(row.id)}
-                className={row.isPhase ? 'phase-row' : ''}
+                className={`${row.isPhase ? 'row-phase' : 'row-task'} ${selected === String(row.id) ? 'row-selected' : ''}`}
                 onClick={() => setSelected(String(row.id))}
-                style={{ cursor: 'pointer' }}
               >
-                {/* hierarchy indicator */}
                 <td className="cell-indent">{row.indent ? '↳' : ''}</td>
 
                 {columns.map((col) => {
                   const cell = (row.cells?.[col.title]) || { value: '', editable: false };
 
-                  // Health → circular dot
                   if (col.title === 'Health') {
-                    const h = cell.value || '';
                     return (
-                      <td key={String(col.id)}>
-                        <span className="health">
-                          <span className={`health-dot ${healthClass(h)}`}></span>
-                        </span>
+                      <td key={String(col.id)} className="cell-center">
+                        <span className={`health-marker ${healthClass(cell.value)}`}></span>
                       </td>
                     );
                   }
 
-                  // Status → colored chip
-if (col.title === 'Status') {
-  const v = cell.value || 'In Queue';
-  return (
-    <td key={String(col.id)}>
-      <span className={`status-chip ${statusClass(v)}`}>{v}</span>
-    </td>
-  );
-}
+                  if (col.title === 'Status') {
+                    return (
+                      <td key={String(col.id)}>
+                        <span className={`status-badge ${statusClass(cell.value)}`}>{cell.value || 'Planned'}</span>
+                      </td>
+                    );
+                  }
 
-// Children → compute for phases
-if (col.title === 'Children') {
-  const c = row.parentId ? 0 : (childrenCount.get(String(row.id)) || 0);
-  return <td key={String(col.id)} className="cell-muted">{c}</td>;
-}
+                  if (col.title === 'Children') {
+                    const count = row.isPhase ? (childrenCount.get(String(row.id)) || 0) : 0;
+                    return <td key={String(col.id)} className="cell-numeric">{count}</td>;
+                  }
 
-// Working Days Remaining → compute if empty
-if (col.title === 'Working Days Remaining') {
-  const raw = cell.value;
-  const fallback = bizDaysFromToday(cellVal(row, 'End Date'));
-  const shown = (raw !== '' && raw !== null && raw !== undefined) ? raw : (fallback || '—');
-  return <td key={String(col.id)} className={!shown || shown === '—' ? 'cell-muted' : ''}>{shown}</td>;
-}
+                  if (col.title === 'Assigned To') {
+                    const emails = Array.isArray(cell.value) ? cell.value : (cell.value ? [cell.value] : []);
+                    return (
+                      <td key={String(col.id)} className="cell-contacts">
+                        <ContactMultiSelect
+                          contacts={contacts}
+                          value={emails}
+                          onChange={(updated) => onQuickUpdate(row.id, 'Assigned To', updated)}
+                        />
+                      </td>
+                    );
+                  }
 
-// Modified / Modified By
-if (col.title === 'Modified' || col.title === 'Modified By') {
-  const v = cell.value || '—';
-  return <td key={String(col.id)} className={!cell.value ? 'cell-muted' : ''}>{v}</td>;
-}
+                  if (col.title === 'Primary') {
+                    return (
+                      <td key={String(col.id)} className="cell-primary">
+                        {row.isPhase ? (
+                          <strong>{cell.value}</strong>
+                        ) : (
+                          <input 
+                            className="input-inline" 
+                            value={cell.value} 
+                            onChange={(e) => onQuickUpdate(row.id, 'Primary', e.target.value)} 
+                          />
+                        )}
+                      </td>
+                    );
+                  }
 
-// Inline editors (tasks only)
-if (!row.isPhase && col.title === '% Complete') {
-  const val = Number(cell.value || 0);
-  return (
-    <td key={String(col.id)}>
-      <input
-        type="number"
-        min={0}
-        max={100}
-        value={val}
-        onChange={(e) => onQuickUpdate(row.id, '% Complete', Number(e.target.value))}
-      />
-    </td>
-  );
-}
+                  return (
+                    <td key={String(col.id)}>
+                      {cell.editable ? (
+                        <input 
+                          className="input-inline"
+                          value={String(cell.value ?? '')} 
+                          onChange={(e) => onQuickUpdate(row.id, col.title, e.target.value)} 
+                        />
+                      ) : (
+                        <span className={!cell.value ? 'text-muted' : ''}>{String(cell.value || '—')}</span>
+                      )}
+                    </td>
+                  );
+                })}
 
-if (!row.isPhase && (col.title === 'Start Date' || col.title === 'End Date')) {
-  const iso = String(cell.value || '');
-  return (
-    <td key={String(col.id)}>
-      <input
-        type="date"
-        value={iso ? iso.split('T')[0] : ''}
-        onChange={(e) => onQuickUpdate(row.id, col.title, e.target.value)}
-      />
-    </td>
-  );
-}
+                <td className="cell-actions-list">
+                  {!row.isPhase ? (
+                    <div className="btn-group">
+                      <button className="btn btn-sm" onClick={() => { setEditRow(row); seedEditForm(row); }}>Modify</button>
+                      <button className="btn btn-sm btn-danger" onClick={() => requestDelete(row.id)}>Remove</button>
+                    </div>
+                  ) : <span className="text-muted">—</span>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </main>
 
-if (col.title === 'Assigned To') {
-  const selected = Array.isArray(cell.value) ? cell.value : (cell.value ? [cell.value] : []);
-  return (
-    <td key={String(col.id)} style={{ minWidth: 240 }}>
-      <ContactMultiSelect
-        contacts={contacts}
-        value={selected}
-        onChange={(updated) => onQuickUpdate(row.id, 'Assigned To', updated)}
-      />
-    </td>
-  );
-}
-
-if (col.title === 'Primary') {
-  const val = String(cell.value ?? '');
-  return (
-    <td key={String(col.id)}>
-      {row.isPhase
-        ? <strong>{val}</strong>
-        : <input value={val} onChange={(e) => onQuickUpdate(row.id, 'Primary', e.target.value)} />
-      }
-    </td>
-  );
-}
-
-// Default render (respect editable flag)
-return (
-  <td key={String(col.id)}>
-    {cell.editable
-      ? <input value={String(cell.value ?? '')} onChange={(e) => onQuickUpdate(row.id, col.title, e.target.value)} />
-      : <span className={!cell.value ? 'cell-muted' : ''}>{String(cell.value ?? '—') || '—'}</span>
-    }
-  </td>
-);
-})}
-
-<td style={{ whiteSpace: 'nowrap' }}>
-  {!row.isPhase && (
-    <>
-      <button className="btn" onClick={() => { setEditRow(row); seedEditForm(row); }}>Edit</button>
-      <button className="btn" style={{ marginLeft: 6 }} onClick={() => requestDelete(row.id)}>Delete</button>
-    </>
-  )}
-  {row.isPhase && <span className="cell-muted">—</span>}
-</td>
-</tr>
-))}
-</tbody>
-</table>
-</div>
-
-{/* Add Task Modal */}
-{showAdd && (
-  <AddModal
-    phases={phases}
-    contacts={contacts}
-    onClose={() => setShowAdd(false)}
-    onCreate={onCreate}
-  />
-)}
-
-{/* Edit Drawer */}
-{editRow && (
-  <div className="drawer" style={{
-    position: 'fixed', right: 16, top: 16, bottom: 16, width: 380,
-    background: 'var(--panel)', border: '1px solid var(--border)',
-    borderRadius: 12, padding: 16, boxShadow: 'var(--shadow)', zIndex: 999
-  }}>
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-      <h3 style={{ margin: 0 }}>Edit Task</h3>
-      <button className="btn" onClick={() => setEditRow(null)}>×</button>
-    </div>
-
-    <Field label="Primary">
-      <input
-        value={editForm.primary || ''}
-        onChange={(e) => setEditForm({ ...editForm, primary: e.target.value })}
-      />
-    </Field>
-
-    <Field label="Assigned To">
-      <ContactMultiSelect
-        contacts={contacts}
-        value={editForm.assignedTo || []}
-        onChange={(updated) => setEditForm({ ...editForm, assignedTo: updated })}
-      />
-    </Field>
-
-    <Field label="% Complete">
-      <input
-        type="number"
-        min={0}
-        max={100}
-        value={editForm.percent || 0}
-        onChange={(e) => setEditForm({ ...editForm, percent: Number(e.target.value) })}
-      />
-    </Field>
-
-    <div style={{ display: 'flex', gap: 10 }}>
-      <Field label="Start Date" style={{ flex: 1 }}>
-        <input
-          type="date"
-          value={(editForm.start || '').split('T')[0] || ''}
-          onChange={(e) => setEditForm({ ...editForm, start: e.target.value })}
+      {/* Task Creation Modal */}
+      {showAdd && (
+        <AddModal
+          phases={phases}
+          contacts={contacts}
+          onClose={() => setShowAdd(false)}
+          onCreate={onCreate}
         />
-      </Field>
-      <Field label="End Date" style={{ flex: 1 }}>
-        <input
-          type="date"
-          value={(editForm.end || '').split('T')[0] || ''}
-          onChange={(e) => setEditForm({ ...editForm, end: e.target.value })}
-        />
-      </Field>
-    </div>
+      )}
 
-    <div style={{ marginTop: 16, display: 'flex', gap: 10 }}>
-      <button className="btn" onClick={() => setEditRow(null)}>Cancel</button>
-      <button className="btn btn-primary" onClick={onSaveEdit}>Save</button>
-    </div>
-  </div>
-)}
+      {/* Task Modification Side-panel */}
+      {editRow && (
+        <aside className="side-drawer">
+          <div className="drawer-header">
+            <h3>Modify Task</h3>
+            <button className="btn-close" onClick={() => setEditRow(null)}>×</button>
+          </div>
+          <div className="drawer-body">
+            <Field label="Task Designation">
+              <input value={editForm.primary || ''} onChange={(e) => setEditForm({ ...editForm, primary: e.target.value })} />
+            </Field>
+            <Field label="Assignees">
+              <ContactMultiSelect
+                contacts={contacts}
+                value={editForm.assignedTo || []}
+                onChange={(updated) => setEditForm({ ...editForm, assignedTo: updated })}
+              />
+            </Field>
+            <Field label="Completion (%)">
+              <input type="number" min={0} max={100} value={editForm.percent || 0} onChange={(e) => setEditForm({ ...editForm, percent: Number(e.target.value) })} />
+            </Field>
+            <div className="horizontal-fields">
+              <Field label="Start" style={{ flex: 1 }}>
+                <input type="date" value={(editForm.start || '').split('T')[0]} onChange={(e) => setEditForm({ ...editForm, start: e.target.value })} />
+              </Field>
+              <Field label="End" style={{ flex: 1 }}>
+                <input type="date" value={(editForm.end || '').split('T')[0]} onChange={(e) => setEditForm({ ...editForm, end: e.target.value })} />
+              </Field>
+            </div>
+          </div>
+          <div className="drawer-footer">
+            <button className="btn" onClick={() => setEditRow(null)}>Dismiss</button>
+            <button className="btn btn-primary" onClick={onSaveEdit}>Perspective Changes</button>
+          </div>
+        </aside>
+      )}
 
-{/* Delete Confirmation */}
-<ConfirmDialog
-  open={confirmState.open}
-  title="Delete Task"
-  message={
-    confirmState.row
-      ? `Are you sure you want to delete "${confirmState.row.name}"? This cannot be undone.`
-      : ''
-  }
-  confirmText="Delete"
-  onCancel={() => setConfirmState({ open: false, row: null })}
-  onConfirm={confirmDelete}
-/>
-</div>
-);
+      {/* Persistence Confirmation */}
+      <ConfirmDialog
+        open={confirmState.open}
+        title="Confirm Task Removal"
+        message={`Are you sure you wish to permanently remove "${confirmState.row?.name}"? This action synchronizes directly with Smartsheet and remains final.`}
+        confirmText="Remove Task"
+        onCancel={() => setConfirmState({ open: false, row: null })}
+        onConfirm={confirmDelete}
+      />
+    </div>
+  );
 }

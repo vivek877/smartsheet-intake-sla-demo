@@ -1,17 +1,66 @@
-const BASE = process.env.REACT_APP_API_BASE || ''; // Standard for Create React App
+/**
+ * Smartsheet Service Client (Production)
+ * 
+ * Provides authenticated HTTP communication with the Smartsheet BFF service.
+ * Handles request normalization and standardized error reporting.
+ */
 
-async function http(path, init) {
-  const res = await fetch(`${BASE}${path}`, {
+const BASE_URL = process.env.REACT_APP_API_BASE || '';
+
+/**
+ * Generic HTTP wrapper for service requests.
+ * @param {string} path - The API endpoint path.
+ * @param {Object} init - Fetch options (method, body, headers).
+ * @returns {Promise<Object>} The parsed JSON response.
+ */
+async function request(path, init) {
+  const response = await fetch(`${BASE_URL}${path}`, {
     headers: { 'Content-Type': 'application/json' },
-    ...(init || {})
+    ...init
   });
-  if (!res.ok) throw new Error(await res.text());
-  return res.json();
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(errorText || `Service Error: ${response.status}`);
+  }
+
+  return response.json();
 }
 
-export const getMeta   = () => http('/api/meta');
-export const getTasks  = () => http('/api/tasks');
-export const createTask = (body) => http('/api/tasks', { method: 'POST', body: JSON.stringify(body) });
-export const updateTask = (rowId, cells) => http(`/api/tasks/${rowId}`, { method: 'PATCH', body: JSON.stringify({ cells }) });
-export const deleteTask = (rowId) => http(`/api/tasks/${rowId}`, { method: 'DELETE' });
-export const getContacts = () => http('/api/contacts');
+/**
+ * Fetches sheet metadata including column definitions and project phases.
+ */
+export const getMeta = () => request('/api/meta');
+
+/**
+ * Retrieves the full list of project tasks.
+ */
+export const getTasks = () => request('/api/tasks');
+
+/**
+ * Persists a new task into the Smartsheet project plan.
+ */
+export const createTask = (body) => request('/api/tasks', { 
+  method: 'POST', 
+  body: JSON.stringify(body) 
+});
+
+/**
+ * Updates an existing task with partial cell data.
+ */
+export const updateTask = (rowId, cells) => request(`/api/tasks/${rowId}`, { 
+  method: 'PATCH', 
+  body: JSON.stringify({ cells }) 
+});
+
+/**
+ * Removes a task from the project plan.
+ */
+export const deleteTask = (rowId) => request(`/api/tasks/${rowId}`, { 
+  method: 'DELETE' 
+});
+
+/**
+ * Fetches the list of valid team members for task assignment.
+ */
+export const getContacts = () => request('/api/contacts');

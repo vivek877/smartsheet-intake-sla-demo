@@ -1,14 +1,24 @@
+/**
+ * Smartsheet Intake & SLA Demo - Backend API
+ * 
+ * This server provides a high-level API for interacting with Smartsheet project plans.
+ * Implementation features:
+ * - Robust sheet ID resolution (Environment vs. Name lookup)
+ * - Intelligent in-memory caching for optimized frontend performance
+ * - Standardized JSON-REST endpoints for task CRUD operations
+ * - Native Smartsheet REST API integration for maximum stability
+ */
+
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
-const createSmartsheet = require('./smartsheet'); // -> returns client.createClient({ accessToken })
+const createSmartsheet = require('./smartsheet');
 
 const app = express();
 
-/* -------------------- CORS -------------------- */
-const ORIGINS_ENV =
-  process.env.ALLOWED_ORIGINS || process.env.ALLOWED_ORIGIN || '*';
+/* -------------------- Middleware & CORS -------------------- */
+const ORIGINS_ENV = process.env.ALLOWED_ORIGINS || process.env.ALLOWED_ORIGIN || '*';
 const ORIGINS = ORIGINS_ENV.split(',').map((s) => s.trim());
 
 app.use(
@@ -24,7 +34,7 @@ app.use(
 
 app.use(express.json());
 
-// Ensure JSON responses (some proxies/clients are picky)
+// Standardize response headers for cross-platform compatibility
 app.use((_req, res, next) => {
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   next();
@@ -32,22 +42,24 @@ app.use((_req, res, next) => {
 
 app.use(morgan('dev'));
 
-/* -------------------- ENV + SDK -------------------- */
+/* -------------------- Configuration & Client Initialization -------------------- */
 const TOKEN = process.env.SMARTSHEET_TOKEN;
-if (!TOKEN) throw new Error('SMARTSHEET_TOKEN is required');
+if (!TOKEN) throw new Error('SMARTSHEET_TOKEN is required for operation');
 
 const sdk = createSmartsheet(TOKEN);
 
 const SHEET_NAME = (process.env.SHEET_NAME || '').trim();
 const PORT = Number(process.env.PORT || 4000);
 
-/* -------------------- In‑memory cache -------------------- */
-let SHEET_ID; // resolved numeric id (valid after ensureSheetBoot)
-let SHEET_DATA = null; // Full Smartsheet data (columns + rows) - Cached for performance
-let COLUMNS = []; // [{id,title,type,options?,systemColumnType?,primary?,contactOptions?}]
-let COLUMN_BY_TITLE = new Map(); // normalized title -> column
+/* -------------------- State Management (Caching) -------------------- */
+let SHEET_ID;   // Resolved numeric ID of the active sheet
+let SHEET_DATA = null; // Full cached sheet object (metadata + rows)
+let COLUMNS = [];      // Normalized column definitions
+let COLUMN_BY_TITLE = new Map(); // Fast lookup by column title
 
-/* -------------------- Helper: numeric id sanitize -------------------- */
+/**
+ * Normalizes and validates raw sheet IDs into numeric format.
+ */
 function sanitizeSheetId(raw) {
   if (!raw) return null;
   const digits = (String(raw).match(/\d+/g) || []).join('');
@@ -56,16 +68,14 @@ function sanitizeSheetId(raw) {
   return Number.isFinite(idNum) ? idNum : null;
 }
 
-/* -------------------- Load columns & build map -------------------- */
+/**
+ * Fetches sheet structure and populates the in-memory column maps.
+ */
 async function loadColumns(id) {
-  // Direct REST call to: https://api.smartsheet.com/2.0/sheets/{sheetId}
-  // This is 100% stable and returns exactly one sheet object.
+  // Use direct REST call for maximum reliability and control
   const sheet = await sdk.sheets.getSheet(id);
 
-  SHEET_DATA = sheet; // Cache for frontend speed
-  // so other APIs don't have to fetch it again
-
-  console.log('sheet columns:', sheet.columns ? sheet.columns.length : 'none');
+  SHEET_DATA = sheet; 
   COLUMNS = (sheet.columns || []).map((c) => ({
     id: c.id,
     title: c.title,
@@ -84,77 +94,63 @@ async function loadColumns(id) {
   return sheet;
 }
 
-/* -------------------- Resolve sheet id robustly -------------------- */
+/**
+ * Resolves the target Sheet ID using environment variables or name-based lookup.
+ */
 async function resolveSheetIdSmart() {
   if (SHEET_ID) return SHEET_ID;
 
-  // 1) Try explicit SHEET_ID from env
+  // 1) Explicit ID from Environment
   const envId = sanitizeSheetId(process.env.SHEET_ID);
-  let getEnvErr = null;
   if (envId) {
     try {
       await sdk.sheets.getSheet(envId);
       SHEET_ID = envId;
-      console.log('Using explicit numeric SHEET_ID:', SHEET_ID);
       return SHEET_ID;
     } catch (e) {
-      getEnvErr = e?.message || 'Unknown SDK error';
-      console.error(
-        `resolveSheetIdSmart: getSheet for envId ${envId} failed: ${getEnvErr}. Falling back to name lookup...`
-      );
+      console.error(`Sheet ID resolution failed for ${envId}: ${e.message}`);
     }
   }
 
-  // 2) Fallback by name (if provided)
+  // 2) Name-based fallback lookup
   if (SHEET_NAME) {
-    console.log(`Looking up sheet by name: "${SHEET_NAME}"`);
     let found = null;
-    let listErr = null;
     try {
-      // Fetch all sheets for the user
       const listResponse = await sdk.sheets.listSheets();
       found = (listResponse.data || []).find(
         (s) => (s.name || '').trim() === SHEET_NAME
       );
     } catch (e) {
-      listErr = e?.message || 'Unknown SDK error listSheets';
-      console.error('resolveSheetIdSmart: listSheets failed:', listErr);
+      console.error('Sheet list retrieval failed:', e.message);
     }
 
     if (!found) {
-      // Give the user a hint of what sheets were actually found
-      console.error(`Sheet named "${SHEET_NAME}" not found. Ensure exact name exists or use valid numeric SHEET_ID.`);
-      throw new Error(`Sheet named "${SHEET_NAME}" not found for this token. Primary error when trying SHEET_ID ${envId}: [ ${getEnvErr || 'No ID provided'} ]. ListSheets Error: [ ${listErr || 'Sheet name not found in list'} ]`);
+      throw new Error(`Target sheet "${SHEET_NAME}" not found in account.`);
     }
 
     try {
-      // verified that sheetId is the correct key for this token in diag
-      // verify we can open it via REST
       await sdk.sheets.getSheet(found.id);
       SHEET_ID = found.id;
-      console.log('Resolved SHEET_ID from name ->', SHEET_ID);
       return SHEET_ID;
     } catch (e) {
-      console.error(`resolveSheetIdSmart: getSheet for found id ${found.id} failed:`, e?.message);
-      throw new Error(`Found sheet "${SHEET_NAME}" but failed to access it. Verify token permissions. Error: ${e?.message}`);
+      throw new Error(`Authentication succeeded but access was denied for sheet ${found.id}`);
     }
   }
 
-  throw new Error(
-    'No valid SHEET_ID / SHEET_NAME. Set SHEET_ID to the numeric id that works.'
-  );
+  throw new Error('No valid SHEET_ID or SHEET_NAME provided in configuration.');
 }
 
-/* -------------------- Ensure boot (id + columns) -------------------- */
+/**
+ * Ensures the sheet state is initialized and up-to-date before operation.
+ */
 async function ensureSheetBoot(forceRefresh = false) {
   await resolveSheetIdSmart();
-  // If we don't have the sheet data yet, or if a refresh is requested, load it
   if (!SHEET_DATA || forceRefresh) {
     await loadColumns(SHEET_ID);
   }
 }
 
-/* -------------------- Column utilities -------------------- */
+/* -------------------- Utility Functions -------------------- */
 function colByTitleInsensitive(title) {
   if (!title) return null;
   return COLUMN_BY_TITLE.get(title.trim().toLowerCase()) || null;
@@ -173,25 +169,19 @@ function findNameColumn() {
 
 function isContactLike(col) {
   if (!col) return false;
-  if (col.type === 'CONTACT_LIST') return true;
-  if (Array.isArray(col.contactOptions) && col.contactOptions.length > 0)
-    return true; // treat as contact list even if type shows TEXT_NUMBER
-  return false;
+  return col.type === 'CONTACT_LIST' || (Array.isArray(col.contactOptions) && col.contactOptions.length > 0);
 }
 
 function isEditableCell(column, cell) {
-  if (!column) return false;
-  if (column.systemColumnType) return false; // system fields
-  if (cell && cell.formula) return false; // formula-backed cells are read-only
+  if (!column || column.systemColumnType) return false;
+  if (cell && cell.formula) return false;
   return true;
 }
 
-/* -------------------- Value builders -------------------- */
+/* -------------------- Payload Preparation -------------------- */
 function contactObjectValue(value) {
   if (Array.isArray(value)) {
-    const vals = value
-      .filter(Boolean)
-      .map((email) => ({ objectType: 'CONTACT', email }));
+    const vals = value.filter(Boolean).map((email) => ({ objectType: 'CONTACT', email }));
     return { objectValue: { objectType: 'MULTI_CONTACT', values: vals } };
   }
   if (typeof value === 'string' && value.trim()) {
@@ -203,52 +193,30 @@ function contactObjectValue(value) {
 function buildCellsPayload(cellsByTitle) {
   const items = [];
   for (const [title, val] of Object.entries(cellsByTitle || {})) {
-    const col =
-      colByTitleInsensitive(title) ||
-      COLUMNS.find((c) => (c.title || '') === title);
-    if (!col) continue;
-
-    // Skip system / complex read-only / formulas
-    if (col.systemColumnType) continue;
-    if (col.formula) continue;
+    const col = colByTitleInsensitive(title) || COLUMNS.find((c) => (c.title || '') === title);
+    if (!col || col.systemColumnType || col.formula) continue;
     if (['PREDECESSOR', 'DURATION'].includes(col.type)) continue;
 
-    // Contacts
     if (isContactLike(col)) {
       items.push({ columnId: col.id, ...contactObjectValue(val) });
-      continue;
+    } else {
+      const safeVal = (val === '' && col.type === 'TEXT_NUMBER') ? null : val;
+      items.push({ columnId: col.id, value: safeVal });
     }
-
-    // Date-like (includes ABSTRACT_DATETIME in your sheet)
-    if (['DATE', 'DATETIME', 'ABSTRACT_DATETIME'].includes(col.type)) {
-      // Smartsheet often rejects these if they are auto-calculated start/end dates for dependencies
-      if (col.tags && (col.tags.includes('GANTT_START_DATE') || col.tags.includes('GANTT_END_DATE'))) {
-        // If dependencies/gantt are enabled, start/end dates are often read-only or calculated from duration
-        // Let's pass them only if project settings allow, but typically it's safer to skip unless explicitly needed.
-        // For now, we will allow them but wrap in try-catch in the caller.
-        items.push({ columnId: col.id, value: val || null });
-        continue;
-      }
-      items.push({ columnId: col.id, value: val || null });
-      continue;
-    }
-
-    // Default
-    // Do not send empty string for TEXT_NUMBER, send null
-    const safeVal = (val === '' && col.type === 'TEXT_NUMBER') ? null : val;
-    items.push({ columnId: col.id, value: safeVal });
   }
   return items;
 }
 
-/* -------------------- Flatten row for UI -------------------- */
+/**
+ * Flattens Smartsheet row structure for frontend consumption.
+ */
 function flattenRow(row) {
   const flat = {
     id: row.id,
     rowNumber: row.rowNumber,
     parentId: row.parentId || null,
     indent: row.parentId ? 1 : 0,
-    isPhase: row.parentId ? false : true,
+    isPhase: !row.parentId,
     cells: {},
   };
 
@@ -257,12 +225,8 @@ function flattenRow(row) {
     if (!col) continue;
 
     let display = cell.displayValue ?? cell.value ?? '';
-
     if (cell.objectValue && cell.objectValue.objectType === 'MULTI_CONTACT') {
-      const emails = (cell.objectValue.values || [])
-        .map((v) => v.email)
-        .filter(Boolean);
-      display = emails;
+      display = (cell.objectValue.values || []).map((v) => v.email).filter(Boolean);
     } else if (cell.objectValue && cell.objectValue.objectType === 'CONTACT') {
       display = cell.objectValue.email || display;
     }
@@ -276,262 +240,155 @@ function flattenRow(row) {
   return flat;
 }
 
-/* -------------------- Diagnostics -------------------- */
-console.log('*** Server starting at', new Date().toISOString());
+/* -------------------- API Endpoints -------------------- */
 
-app.get('/health', (_req, res) =>
-  res.json({ ok: true, version: 1, uptime: process.uptime() })
-);
+// System Health Checks
+app.get('/health', (_req, res) => res.json({ ok: true, uptime: process.uptime() }));
 
-app.get('/__routes', (_req, res) =>
-  res.json({
-    ok: true,
-    routes: ['/health', '/__routes', '/__diag', '/api/meta', '/api/tasks (CRUD)'],
-  })
-);
-
+// Diagnostics & Validation
 app.get(['/__diag', '/api/__diag'], async (_req, res) => {
-  let directTestMsg = 'Not tested';
-  let listSheetsTest = 'Not tested';
-  let sheetResponse = null; // Declare outside try for catch access
   try {
-    const envRaw = process.env.SHEET_ID || null;
-    const parsedEnv = sanitizeSheetId(envRaw);
-
-    // Provide a direct test capability specifically for the diag endpoint 
-    // to bypass resolveSheetIdSmart's fallback and strictly test the token/ID directly.
-    if (parsedEnv) {
-      try {
-        await sdk.sheets.getSheet({ sheetId: parsedEnv });
-        directTestMsg = 'Success! { sheetId: parsedEnv } worked with this Token.';
-      } catch (err1) {
-        directTestMsg = `Failed with { sheetId: ${parsedEnv} } -> ${err1.message}`;
-        // Test an alternate payload just in case SDK docs are misleading
-        try {
-          await sdk.sheets.getSheet({ id: parsedEnv });
-          directTestMsg += ` | However, it DID succeed with { id: ${parsedEnv} }. Modify code if this is the case.`;
-        } catch (err2) {
-          directTestMsg += ` | Failed with { id: ${parsedEnv} } -> ${err2.message}`;
-        }
-      }
-    } else {
-      directTestMsg = 'No numeric SHEET_ID parsed from environment to test directly.';
-    }
-
-    try {
-      const list = await sdk.sheets.listSheets({ queryParameters: { includeAll: true } });
-      listSheetsTest = `Success: Token can access listSheets. Found ${(list.data || []).length} sheets.`;
-    } catch (errList) {
-      listSheetsTest = `Failed to listSheets: ${errList.message}`;
-    }
-
     const liveId = await resolveSheetIdSmart();
-    sheetResponse = await sdk.sheets.getSheet(liveId);
-    const sheet = sheetResponse;
-
+    const sheet = await sdk.sheets.getSheet(liveId);
     return res.json({
-      sheetResponse: sheetResponse,
-      envSheetId: envRaw,
-      parsedEnvSheetId: parsedEnv || null,
-      resolvedSheetId: liveId,
-      sheetName: sheet.name,
-      accessCheck: true,
-      directTestMsg,
-      listSheetsTest
+      activeSheet: sheet.name,
+      sheetId: liveId,
+      accessConfirmed: true,
+      timestamp: new Date().toISOString()
     });
   } catch (e) {
-    return res.status(500).json({
-      sheetResponse: sheetResponse,
-      message: e?.message || 'Diag failed',
-      envSheetId: process.env.SHEET_ID || null,
-      parsedEnvSheetId: sanitizeSheetId(process.env.SHEET_ID) || null,
-      resolvedSheetId: SHEET_ID || null,
-      errorDetails: e?.message,
-      directTestMsg,
-      listSheetsTest
-    });
+    return res.status(503).json({ error: e.message });
   }
 });
 
-/* -------------------- API: META -------------------- */
+// Sheet Metadata & Phasing
 app.get('/api/meta', async (_req, res) => {
   try {
     await ensureSheetBoot();
-    const sheet = SHEET_DATA; // Use the cached data from the guide-aligned getSheet call
-
-    const nameCol = findNameColumn();
-    const nameColId = nameCol?.id;
-
-    const phases = (sheet.rows || [])
+    const nameColId = findNameColumn()?.id;
+    const phases = (SHEET_DATA.rows || [])
       .filter((r) => !r.parentId)
       .map((r) => {
-        let label = 'Phase';
-        if (nameColId) {
-          const cell = r.cells.find((c) => c.columnId === nameColId);
-          label = cell?.displayValue ?? cell?.value ?? label;
-        }
-        return { id: r.id, name: label };
+        const cell = r.cells.find((c) => c.columnId === nameColId);
+        return { id: r.id, name: cell?.displayValue ?? cell?.value ?? 'Unnamed Phase' };
       });
 
     return res.json({
       sheetId: SHEET_ID,
       columns: COLUMNS,
       phases,
-      sheetData: SHEET_DATA // Returns the full data from the Smartsheet Guide!
+      sheetData: SHEET_DATA
     });
   } catch (e) {
-    console.error('META ERROR:', e?.message);
-    return res.status(500).json({
-      message: e?.message || 'Internal Error (meta)',
-      error: e?.name || 'Error'
-    });
+    return res.status(500).json({ error: 'Metadata retrieval failed', details: e.message });
   }
 });
 
-/* -------------------- API: LIST -------------------- */
+// Task List Retrieval
 app.get('/api/tasks', async (_req, res) => {
   try {
-    await ensureSheetBoot(true); // Force refresh to get latest rows for the task list
-    const sheet = SHEET_DATA;
-    const rows = (sheet.rows || []).map(flattenRow);
+    await ensureSheetBoot(true); // Force refresh for real-time task views
+    const rows = (SHEET_DATA.rows || []).map(flattenRow);
     return res.json({ rows, columns: COLUMNS });
   } catch (e) {
-    console.error('LIST ERROR:', e?.message);
-    return res.status(500).json({ message: e?.message || 'Internal Error' });
+    return res.status(500).json({ error: 'Task list retrieval failed' });
   }
 });
 
-/* -------------------- API: CONTACTS -------------------- */
+// Contact/Teammate Lookup
 app.get('/api/contacts', async (req, res) => {
   try {
     await ensureSheetBoot();
-    // Senior approach: Extract contacts from the sheet metadata or return workspace users
-    // For now, we return a hybrid of sheet contacts if available
     const contactCol = COLUMNS.find(c => c.type === 'CONTACT_LIST' || c.contactOptions);
-    let contacts = [];
-    if (contactCol && contactCol.contactOptions) {
-      contacts = contactCol.contactOptions.map(c => ({
-        id: c.email,
-        name: c.name || c.email,
-        email: c.email
-      }));
-    }
+    let contacts = (contactCol?.contactOptions || []).map(c => ({
+      id: c.email,
+      name: c.name || c.email,
+      email: c.email
+    }));
     
-    // Fallback/Default team if sheet doesn't have explicit options
-    if (contacts.length === 0) {
+    // Default fallback team if no sheet contacts are defined
+    if (!contacts.length) {
       contacts = [
         { id: 'allen.mitchell@example.com', name: 'Allen Mitchell', email: 'allen.mitchell@example.com' },
         { id: 'beth.richardson@example.com', name: 'Beth Richardson', email: 'beth.richardson@example.com' },
         { id: 'charlie.adams@example.com', name: 'Charlie Adams', email: 'charlie.adams@example.com' }
       ];
     }
-    
     return res.json(contacts);
   } catch (e) {
-    return res.json([]); // Fail gracefully
+    return res.json([]);
   }
 });
 
-/* -------------------- API: CREATE -------------------- */
+// Task Creation
 app.post('/api/tasks', async (req, res) => {
   try {
     await ensureSheetBoot();
     const { parentId, cells } = req.body;
-    if (!parentId) {
-      return res
-        .status(400)
-        .json({ message: 'parentId (phase row id) is required' });
-    }
+    if (!parentId) return res.status(400).json({ error: 'Parent phase ID is required' });
 
-    // Normalize "Task Name" -> actual name column (Primary) if needed
     const normalizedCells = { ...cells };
     const nameCol = findNameColumn();
-    if (nameCol && normalizedCells['Task Name'] && !normalizedCells[nameCol.title]) {
+    if (nameCol && normalizedCells['Task Name']) {
       normalizedCells[nameCol.title] = normalizedCells['Task Name'];
-      delete normalizedCells['Task Name'];
     }
-
-    const payload = {
-      parentId,
-      cells: buildCellsPayload(normalizedCells),
-    };
 
     const result = await sdk.sheets.addRows({
       sheetId: SHEET_ID,
-      body: [payload],
+      body: [{ parentId, cells: buildCellsPayload(normalizedCells) }],
     });
 
-    const rows = result.result || result; // Smartsheet SDK returns { message, result: [...] }
-    const created =
-      (Array.isArray(rows) && rows[0]) || rows?.[0] || null;
+    const created = result.result?.[0] || result?.[0];
     return res.status(201).json(created ? { id: created.id } : { ok: true });
   } catch (e) {
-    console.error('CREATE ERROR:', e?.message);
-    return res.status(400).json({ message: e?.message || 'Create failed' });
+    return res.status(400).json({ error: e.message });
   }
 });
 
-/* -------------------- API: UPDATE -------------------- */
+// Task Updates
 app.patch('/api/tasks/:rowId', async (req, res) => {
   try {
     await ensureSheetBoot();
     const rowId = Number(req.params.rowId);
     const { cells } = req.body;
-    if (!rowId || !cells || typeof cells !== 'object') {
-      return res.status(400).json({ message: 'rowId and cells are required' });
-    }
+    if (!rowId || !cells) return res.status(400).json({ error: 'Task ID and cell data required' });
 
     const normalizedCells = { ...cells };
     const nameCol = findNameColumn();
-    if (nameCol && normalizedCells['Task Name'] && !normalizedCells[nameCol.title]) {
+    if (nameCol && normalizedCells['Task Name']) {
       normalizedCells[nameCol.title] = normalizedCells['Task Name'];
-      delete normalizedCells['Task Name'];
     }
-
-    const body = [
-      {
-        id: rowId,
-        cells: buildCellsPayload(normalizedCells),
-      },
-    ];
 
     const result = await sdk.sheets.updateRows({
       sheetId: SHEET_ID,
-      body,
+      body: [{ id: rowId, cells: buildCellsPayload(normalizedCells) }],
     });
 
-    const rows = result.result || result;
-    const updated = Array.isArray(rows) ? rows.length : 0;
-    return res.json({ ok: true, updated });
+    return res.json({ ok: true, updated: result.result?.length || 0 });
   } catch (e) {
-    console.error('UPDATE ERROR:', e?.message);
-    return res.status(400).json({ message: e?.message || 'Update failed' });
+    return res.status(400).json({ error: e.message });
   }
 });
 
-/* -------------------- API: DELETE -------------------- */
+// Task Deletion
 app.delete('/api/tasks/:rowId', async (req, res) => {
   try {
     await ensureSheetBoot();
     const rowId = Number(req.params.rowId);
-    const row = await sdk.sheets.getRow({ sheetId: SHEET_ID, rowId });
+    const row = await sdk.sheets.getRow(SHEET_ID, rowId);
 
     if (!row.parentId) {
-      return res
-        .status(400)
-        .json({ message: 'Cannot delete a phase (top-level row)' });
+      return res.status(400).json({ error: 'Top-level phases cannot be deleted via this API.' });
     }
 
     await sdk.sheets.deleteRows({ sheetId: SHEET_ID, rowIds: String(rowId) });
     return res.json({ ok: true });
   } catch (e) {
-    console.error('DELETE ERROR:', e?.message);
-    return res.status(400).json({ message: e?.message || 'Delete failed' });
+    return res.status(400).json({ error: e.message });
   }
 });
 
-/* -------------------- Start -------------------- */
+/* -------------------- Server Lifecycle -------------------- */
 app.listen(PORT, () => {
-  console.log(`API listening on :${PORT}`);
+  console.log(`[🚀] Smartsheet BFF service active on port ${PORT}`);
 });
-

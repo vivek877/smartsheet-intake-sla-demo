@@ -1,4 +1,12 @@
+/**
+ * Smartsheet Intake Dashboard - Global Styles
+ * 
+ * Implements a modern, professional design system with support for dynamic theming (Light/Dark).
+ * Uses CSS Custom Properties for design tokens to ensure consistency across components.
+ */
+
 :root {
+  /* Core Tokens - Light Theme */
   --bg: #f6f8fc;
   --panel: #ffffff;
   --border: #e1e6ef;
@@ -12,7 +20,9 @@
   --danger: #ef4444;
   --shadow: 0 6px 20px rgba(25, 32, 72, 0.08);
 }
+
 html[data-theme='dark'] {
+  /* Core Tokens - Dark Theme */
   --bg: #0e121e;
   --panel: #161c2e;
   --border: #283250;
@@ -26,209 +36,29 @@ html[data-theme='dark'] {
   --danger: #ef4444;
   --shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
 }
+
 * {
   box-sizing: border-box;
 }
+
 body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  font-family: 'Inter', system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  letter-spacing: -0.01em;
 }
+
+/* -------------------- Layout Containers -------------------- */
+
 .container {
-  padding: 16px;
-}
-.app-header,
-.panel {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  box-shadow: var(--shadow);
-}
-.btn {
-  padding: 8px 12px;
-  border-radius: 10px;
-  border: 1px solid var(--border);
-  background: var(--chip);
-  color: var(--text);
-  cursor: pointer;
-}
-.btn-primary {
-  background: var(--primary);
-  color: var(--primary-contrast);
-  border-color: var(--primary);
-}
-.table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 14px;
-}
-.th,
-.td {
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--border);
-}
-.row-phase {
-  background: #e8f0ff;
-  font-weight: 700;
-}
-.toolbar {
-  display: flex;
-  gap: 10px;
-  padding: 10px;
-  margin-top: 10px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--panel);
-}
-input,
-select {
-  background: var(--chip);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 8px 10px;
-}
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.modal {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  width: 520px;
-  padding: 16px;
-}
-.drawer {
-  position: fixed;
-  top: 0;
-  right: 0;
-  width: 360px;
-  height: 100vh;
-  background: var(--panel);
-  border-left: 1px solid var(--border);
-  padding: 16px;
-}
-/* select {
-  appearance: none;
-  padding-right: 28px;
-  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%),
-    linear-gradient(135deg, var(--muted) 50%, transparent 50%),
-    linear-gradient(to right, transparent, transparent);
-  background-position: calc(100% - 18px) calc(1em + 2px),
-    calc(100% - 13px) calc(1em + 2px), 100% 0;
-  background-size: 5px 5px, 5px 5px, 2.5em 2.5em;
-  background-repeat: no-repeat;
-} */
-
-/* === Multi-Select Component === */
-
-.cmulti {
-  position: relative;
-  width: 100%;
-  font-size: 14px;
+  padding: 24px;
+  max-width: 1600px;
+  margin: 0 auto;
 }
 
-.cmulti__chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  background: var(--chip);
-  border: 1px solid var(--border);
-  padding: 6px;
-  border-radius: 10px;
-  cursor: pointer;
-}
-
-.cmulti__chip {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  padding: 2px 6px;
-  border-radius: 12px;
-}
-
-.cmulti__avatar {
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  color: #fff;
-  font-size: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.cmulti__chipLabel {
-  font-size: 12px;
-}
-
-.cmulti__chipRemove {
-  cursor: pointer;
-  font-weight: bold;
-  margin-left: 2px;
-}
-
-.cmulti__caret {
-  font-size: 12px;
-  align-self: center;
-  opacity: 0.7;
-  margin-left: auto;
-}
-
-.cmulti__dropdown {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
-  width: 260px;
-  max-height: 260px;
-  overflow-y: auto;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: var(--shadow);
-  padding: 6px;
-  z-index: 100;
-}
-
-.cmulti__option {
-  display: flex;
-  gap: 10px;
-  padding: 6px;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-.cmulti__option:hover {
-  background: var(--chip);
-}
-
-.cmulti__optionAvatar {
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  color: #fff;
-  font-size: 11px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.cmulti__optionText .cmulti__email {
-  font-size: 11px;
-  color: var(--muted);
-}
-
-/* ===== Table polish ===== */
-.table-wrap {
-  margin-top: 12px;
+.table-container {
+  margin-top: 20px;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -236,125 +66,358 @@ select {
   overflow: auto;
 }
 
-.gantt-table {
+/* -------------------- Component: Dashboard Header -------------------- */
+
+.app-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 24px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  margin-bottom: 24px;
+}
+
+.app-header .brand {
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+
+.header-actions {
+  display: flex;
+  gap: 12px;
+}
+
+/* -------------------- Component: Toolbar & Search -------------------- */
+
+.toolbar {
+  margin-bottom: 16px;
+}
+
+.search-field {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+}
+
+.search-field input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  outline: none;
+}
+
+.results-badge {
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--chip);
+  padding: 2px 8px;
+  border-radius: 6px;
+}
+
+/* -------------------- Component: Buttons -------------------- */
+
+.btn {
+  padding: 9px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn:hover {
+  border-color: var(--muted);
+}
+
+.btn-primary {
+  background: var(--primary);
+  color: var(--primary-contrast);
+  border-color: var(--primary);
+}
+
+.btn-primary:hover {
+  filter: brightness(1.1);
+}
+
+.btn-danger {
+  color: var(--danger);
+}
+
+.btn-danger:hover {
+  background: var(--danger);
+  color: white;
+  border-color: var(--danger);
+}
+
+.btn-sm {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+/* -------------------- Component: Status & Health -------------------- */
+
+.status-badge {
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid var(--border);
+}
+
+.status-queue { background: #f3f4f6; color: #6b7280; }
+.status-progress { background: #e0e7ff; color: #1d4ed8; border-color: #c7d2fe; }
+.status-complete { background: #d1fae5; color: #065f46; border-color: #a7f3d0; }
+.status-hold { background: #ffedd5; color: #92400e; border-color: #fed7aa; }
+
+.health-marker {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.health-green { background: var(--ok); }
+.health-yellow { background: var(--warn); }
+.health-red { background: var(--danger); }
+.health-blue { background: var(--primary); }
+
+/* -------------------- Component: Advanced Table -------------------- */
+
+.project-table {
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
   font-size: 14px;
 }
 
-.gantt-table thead th {
+.project-table th {
   position: sticky;
   top: 0;
   background: var(--panel);
-  z-index: 2;
+  padding: 12px 16px;
   text-align: left;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--border);
-  white-space: nowrap;
+  border-bottom: 2px solid var(--border);
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  z-index: 10;
 }
 
-.gantt-table tbody td {
-  padding: 10px 12px;
+.project-table td {
+  padding: 12px 16px;
   border-bottom: 1px solid var(--border);
   vertical-align: middle;
 }
 
-.gantt-table tbody tr:hover {
-  background: rgba(66,104,247,0.06);
+.row-task:hover {
+  background: rgba(66, 104, 247, 0.04);
 }
 
-.gantt-table tbody tr.phase-row {
-  background: rgba(66,104,247,0.08);
+.row-phase {
+  background: rgba(66, 104, 247, 0.06);
   font-weight: 700;
 }
 
-/* indent caret */
-.cell-indent {
-  width: 18px;
-  color: var(--muted);
+.row-selected {
+  background: rgba(66, 104, 247, 0.1) !important;
 }
 
-/* zebra */
-.gantt-table tbody tr:nth-child(even):not(.phase-row) {
-  background: rgba(0,0,0,0.015);
+.input-inline {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: inherit;
+  font-size: inherit;
+  border-radius: 4px;
 }
 
-/* read-only text */
-.cell-muted {
-  color: var(--muted);
+.input-inline:focus {
+  background: var(--panel);
+  border-color: var(--primary);
+  outline: none;
 }
 
-/* ===== Status chips ===== */
-.status-chip {
-  display: inline-flex;
+/* -------------------- Component: Modals & Side Drawer -------------------- */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal {
+  background: var(--panel);
+  border-radius: 12px;
+  box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+  padding: 24px;
+  width: 100%;
+  max-width: 500px;
+}
+
+.side-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 400px;
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+  box-shadow: -10px 0 30px rgba(0,0,0,0.1);
+  padding: 24px;
+  animation: slideIn 0.3s ease-out;
+  z-index: 1100;
+}
+
+@keyframes slideIn {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+/* -------------------- Component: Contact Selector -------------------- */
+
+.contact-selector {
+  width: 100%;
+}
+
+.selector-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px;
+  background: var(--chip);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  min-height: 38px;
+}
+
+.contact-chip {
+  display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 10px;
-  border-radius: 999px;
-  font-weight: 600;
+  padding: 3px 8px;
+  background: var(--panel);
   border: 1px solid var(--border);
-  background: var(--chip);
+  border-radius: 20px;
+  font-size: 12px;
 }
-.status-queue   { color:#6b7280; background:#f3f4f6; }
-.status-progress{ color:#1d4ed8; background:#e0e7ff; border-color:#c7d2fe; }
-.status-complete{ color:#065f46; background:#d1fae5; border-color:#a7f3d0; }
-.status-hold    { color:#92400e; background:#ffedd5; border-color:#fed7aa; }
 
-/* ===== Health dot ===== */
-.health-dot {
-  display:inline-block;
-  width: 12px;
-  height: 12px;
+.chip-avatar {
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
-  box-shadow: 0 0 0 2px rgba(0,0,0,0.05) inset;
-  margin-right: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  color: white;
+  font-weight: 700;
 }
-.health-green  { background:#22c55e; }
-.health-yellow { background:#f59e0b; }
-.health-red    { background:#ef4444; }
-.health-blue   { background:#3b82f6; }
 
-/* ===== Search bar ===== */
-.searchbar {
-  width: 100%;
+.chip-remove {
+  opacity: 0.5;
+  transition: opacity 0.2s;
+}
+
+.chip-remove:hover {
+  opacity: 1;
+}
+
+.selector-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  width: 320px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  z-index: 1200;
+  padding: 8px;
+  max-height: 400px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.dropdown-search {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--panel);
-}
-.searchbar input {
-  width: 100%;
-  border: none;
-  outline: none;
-  background: transparent;
-  color: var(--text);
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
 }
 
-/* ===== ContactMultiSelect width & dropdown ===== */
-.cmulti { width: 100%; }
-.cmulti__chips {
-  min-height: 36px;
-  width: 100%;
-  gap: 6px;
-  background: var(--chip);
-  border: 1px solid var(--border);
-  padding: 6px;
-  border-radius: 10px;
+.dropdown-search input {
+  flex: 1;
+  border: none;
+  font-size: 13px;
+  background: transparent;
+  outline: none;
+}
+
+.dropdown-list {
+  overflow-y: auto;
+  flex: 1;
+}
+
+.list-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px;
+  border-radius: 6px;
   cursor: pointer;
 }
-.cmulti__dropdown {
-  min-width: 360px;
-  max-height: 320px;
-  overflow-y: auto;
-  z-index: 1000;
+
+.list-item:hover {
+  background: var(--chip);
 }
-.cmulti__chip {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 2px 6px;
+
+.item-active {
+  background: rgba(66, 104, 247, 0.08);
+}
+
+.item-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.item-details .item-name {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.item-details .item-email {
+  font-size: 11px;
+  color: var(--muted);
 }
