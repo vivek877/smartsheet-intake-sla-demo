@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 /**
- * Smartsheet Intake & SLA Demo - Frontend Application
+ * Smartsheet Project Dashboard - Frontend Application
  * 
  * Provides a React-based interface for managing Smartsheet project data.
  * Features:
@@ -11,6 +11,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
  * - Role-based contact multi-selection
  */
 
+// Service API
 import {
   getMeta,
   getTasks,
@@ -20,12 +21,22 @@ import {
   getContacts
 } from './api.real';
 
+// Components
 import ContactMultiSelect from './components/ContactMultiSelect';
+import { AddModal, ConfirmDialog } from './components/TaskModals';
 
-/* -------------------- State Management Hooks -------------------- */
+// Utilities
+import { 
+  getStatusClass, 
+  getHealthClass, 
+  calculateBusinessDays, 
+  getCellValue 
+} from './utils/projectHelpers';
+
+/* -------------------- Custom Hooks -------------------- */
 
 /**
- * Custom hook for theme management (Light/Dark mode)
+ * Orchestrates theme switching and persistence.
  */
 function useTheme() {
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'light');
@@ -39,239 +50,61 @@ function useTheme() {
     document.documentElement.dataset.theme = resolved;
   }, [theme, resolved]);
 
-  return { theme, setTheme, resolved, toggle: () => setTheme(resolved === 'dark' ? 'light' : 'dark') };
+  return { 
+    theme, 
+    setTheme, 
+    resolved, 
+    toggle: () => setTheme(resolved === 'dark' ? 'light' : 'dark') 
+  };
 }
 
-/* -------------------- UI Utility Functions -------------------- */
-
-/**
- * Returns CSS class based on task status strings.
- */
-const statusClass = (s) => {
-  const v = (String(s || '').toLowerCase());
-  if (v.includes('progress')) return 'status-progress';
-  if (v.includes('complete')) return 'status-complete';
-  if (v.includes('hold')) return 'status-hold';
-  return 'status-queue';
-};
-
-/**
- * Returns CSS class based on health marker strings.
- */
-const healthClass = (h) => {
-  const v = (String(h || '').toLowerCase());
-  if (v.includes('green')) return 'health-green';
-  if (v.includes('yellow')) return 'health-yellow';
-  if (v.includes('red')) return 'health-red';
-  return 'health-blue';
-};
-
-/**
- * Calculates remaining business days (Mon-Fri) from current date to target end date.
- */
-function bizDaysFromToday(endValue) {
-  if (!endValue) return '';
-  const d = new Date(endValue);
-  if (isNaN(d.getTime())) return '';
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  d.setHours(0, 0, 0, 0);
-  const dir = d >= today ? 1 : -1;
-  let count = 0; let cur = new Date(today);
-  while ((dir > 0 && cur <= d) || (dir < 0 && cur >= d)) {
-    const day = cur.getDay(); 
-    if (day !== 0 && day !== 6) count += dir;
-    cur.setDate(cur.getDate() + dir);
-  }
-  return dir > 0 ? count : -count;
-}
-
-const cellVal = (row, title) => (row?.cells?.[title]?.value ?? '');
-
-/* -------------------- Component Wrappers -------------------- */
-
-function Field({ label, children, style }) {
-  return (
-    <div style={{ margin: '10px 0', ...style }}>
-      <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 4 }}>{label}</div>
-      {children}
-    </div>
-  );
-}
-
-/* -------------------- Modal Components -------------------- */
-
-/**
- * Presentation component for adding a new task into a specific phase.
- */
-function AddModal({ phases, contacts, onClose, onCreate }) {
-  const [form, setForm] = useState({
-    taskName: '',
-    phaseRowId: '',
-    assignedTo: [],
-    start: '',
-    end: '',
-    percent: 0
-  });
-
-  return (
-    <div className="modal-backdrop" onClick={onClose} style={{
-      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.25)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999
-    }}>
-      <div className="modal" onClick={(e) => e.stopPropagation()} style={{
-        width: 520, maxWidth: '92vw',
-        background: 'var(--panel)', border: '1px solid var(--border)',
-        borderRadius: 12, padding: 16, boxShadow: 'var(--shadow)'
-      }}>
-        <h3 style={{ marginTop: 0 }}>Add New Task</h3>
-
-        <Field label="Task Name">
-          <input
-            value={form.taskName}
-            onChange={(e) => setForm({ ...form, taskName: e.target.value })}
-          />
-        </Field>
-
-        <Field label="Parent Phase">
-          <select
-            value={form.phaseRowId}
-            onChange={(e) => setForm({ ...form, phaseRowId: e.target.value })}
-          >
-            <option value="">Select phase…</option>
-            {phases.map((p) => (
-              <option key={String(p.id)} value={String(p.id)}>{p.name}</option>
-            ))}
-          </select>
-        </Field>
-
-        <Field label="Assigned Team Members">
-          <ContactMultiSelect
-            contacts={contacts}
-            value={form.assignedTo}
-            onChange={(updated) => setForm({ ...form, assignedTo: updated })}
-          />
-        </Field>
-
-        <div style={{ display: 'flex', gap: 10 }}>
-          <Field label="Scheduled Start" style={{ flex: 1 }}>
-            <input
-              type="date"
-              value={form.start}
-              onChange={(e) => setForm({ ...form, start: e.target.value })}
-            />
-          </Field>
-          <Field label="Scheduled End" style={{ flex: 1 }}>
-            <input
-              type="date"
-              value={form.end}
-              onChange={(e) => setForm({ ...form, end: e.target.value })}
-            />
-          </Field>
-        </div>
-
-        <Field label="Completion Percentage">
-          <input
-            type="number"
-            min={0}
-            max={100}
-            value={form.percent}
-            onChange={(e) => setForm({ ...form, percent: Number(e.target.value) })}
-          />
-        </Field>
-
-        <div style={{ marginTop: 12, display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-          <button className="btn" onClick={onClose}>Cancel</button>
-          <button
-            className="btn btn-primary"
-            onClick={() => {
-              if (!form.phaseRowId) { alert('Please select a phase'); return; }
-              if (!form.taskName.trim()) { alert('Task name is required'); return; }
-              onCreate(form);
-            }}
-          >
-            Create Task
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/**
- * Generic confirmation dialog for critical operations.
- */
-function ConfirmDialog({ open, title, message, confirmText = 'Confirm', onCancel, onConfirm }) {
-  if (!open) return null;
-  return (
-    <div className="modal-backdrop" onClick={onCancel} style={{
-      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.25)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000
-    }}>
-      <div className="modal" onClick={(e) => e.stopPropagation()} style={{
-        width: 440, maxWidth: '92vw',
-        background: 'var(--panel)', border: '1px solid var(--border)',
-        borderRadius: 12, padding: 16, boxShadow: 'var(--shadow)'
-      }}>
-        <h3 style={{ marginTop: 0 }}>{title}</h3>
-        <div style={{ color: 'var(--text)' }}>{message}</div>
-        <div style={{ marginTop: 16, display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-          <button className="btn" onClick={onCancel}>Cancel</button>
-          <button className="btn btn-danger" onClick={onConfirm}>{confirmText}</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* -------------------- Main Application -------------------- */
+/* -------------------- Main Dashboard -------------------- */
 
 export default function App() {
   const { toggle } = useTheme();
 
+  // Data State
   const [meta, setMeta] = useState(null);            
   const [rows, setRows] = useState([]);              
   const [contacts, setContacts] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  // UI / Interaction State
   const [showAdd, setShowAdd] = useState(false);     
   const [editRow, setEditRow] = useState(null);      
   const [editForm, setEditForm] = useState({});      
-  const [selected, setSelected] = useState(null);    
-  const [q, setQ] = useState('');                    
-
+  const [selectedId, setSelectedId] = useState(null);    
+  const [searchQuery, setSearchQuery] = useState('');                    
   const [confirmState, setConfirmState] = useState({ open: false, row: null }); 
 
   const searchRef = useRef(null);
 
-  // Keyboard shortcut management
+  // Keyboard Navigation & Shortcuts
   useEffect(() => {
-    const handler = (e) => {
-      const tag = (e.target && e.target.tagName) || '';
-      const inField = tag === 'INPUT' || tag === 'TEXTAREA';
+    const handleShortcuts = (e) => {
+      const activeElement = document.activeElement.tagName;
+      const isTyping = activeElement === 'INPUT' || activeElement === 'TEXTAREA';
 
       if (e.key === '/' && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
-        if (searchRef.current) searchRef.current.focus();
+        searchRef.current?.focus();
         return;
       }
-      if (inField) return;
+      if (isTyping) return;
 
       if (e.key === 'd') toggle();
       if (e.key === 'n') setShowAdd(true);
 
-      if (e.key === 'e' && selected) {
-        const r = rows.find((r) => String(r.id) === String(selected));
-        if (r && !r.isPhase) {
-          setEditRow(r);
-          seedEditForm(r);
+      if (e.key === 'e' && selectedId) {
+        const row = rows.find((r) => String(r.id) === String(selectedId));
+        if (row && !row.isPhase) {
+          setEditRow(row);
+          seedEditForm(row);
         }
       }
-      if (e.key === 'Delete' && selected) requestDelete(selected);
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
-        if (editRow) onSaveEdit();
-        e.preventDefault();
-      }
+      
+      if (e.key === 'Delete' && selectedId) requestDelete(selectedId);
+      
       if (e.key === 'Escape') {
         setShowAdd(false);
         setEditRow(null);
@@ -279,14 +112,14 @@ export default function App() {
       }
     };
 
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [selected, editRow, rows, toggle]);
+    window.addEventListener('keydown', handleShortcuts);
+    return () => window.removeEventListener('keydown', handleShortcuts);
+  }, [selectedId, rows, toggle]);
 
   /**
-   * Initializes application data from backend services.
+   * Refreshes dashboard data from the BFF service.
    */
-  async function load() {
+  async function refreshData() {
     setLoading(true);
     try {
       const [m, t, ppl] = await Promise.all([getMeta(), getTasks(), getContacts()]);
@@ -294,84 +127,89 @@ export default function App() {
       setRows(t.rows || []);
       setContacts(ppl || []);
     } catch (e) {
-      console.error('Data loading failed:', e.message);
+      console.error('Data synchronization failed:', e.message);
     } finally {
       setLoading(false);
     }
   }
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { refreshData(); }, []);
 
-  const columns = (meta && meta.columns) || [];
-  const phases = (meta && meta.phases) || [];
-
-  function cellValue(row, title) {
-    return (row?.cells?.[title]?.value ?? '');
-  }
+  const columns = useMemo(() => meta?.columns || [], [meta]);
+  const phases = useMemo(() => meta?.phases || [], [meta]);
 
   /**
-   * Hydrates the edit form with current row data.
+   * Hydrates the modification form with existing task attributes.
    */
   function seedEditForm(row) {
     setEditForm({
-      primary: cellValue(row, 'Primary'),
-      status: cellValue(row, 'Status'),
-      assignedTo: Array.isArray(cellValue(row, 'Assigned To')) ? cellValue(row, 'Assigned To') : (
-        cellValue(row, 'Assigned To') ? [cellValue(row, 'Assigned To')] : []
-      ),
-      start: (cellValue(row, 'Start Date') || ''),
-      end: (cellValue(row, 'End Date') || ''),
-      percent: Number(cellValue(row, '% Complete') || 0)
+      primary: getCellValue(row, 'Primary'),
+      status: getCellValue(row, 'Status'),
+      assignedTo: Array.isArray(getCellValue(row, 'Assigned To')) 
+        ? getCellValue(row, 'Assigned To') 
+        : (getCellValue(row, 'Assigned To') ? [getCellValue(row, 'Assigned To')] : []),
+      start: (getCellValue(row, 'Start Date') || ''),
+      end: (getCellValue(row, 'End Date') || ''),
+      percent: Number(getCellValue(row, '% Complete') || 0)
     });
   }
 
-  const childrenCount = useMemo(() => {
+  // Memoized hierarchy stats
+  const phaseChildCount = useMemo(() => {
     const map = new Map();
-    for (const r of rows) {
+    rows.forEach(r => {
       if (r.parentId) {
-        const key = String(r.parentId);
-        map.set(key, (map.get(key) || 0) + 1);
+        const pid = String(r.parentId);
+        map.set(pid, (map.get(pid) || 0) + 1);
       }
-    }
+    });
     return map;
   }, [rows]);
 
+  // Optimized search results
   const displayRows = useMemo(() => {
-    if (!q.trim()) return rows;
-    const term = q.trim().toLowerCase();
-    const contains = (x) => String(x || '').toLowerCase().includes(term);
+    if (!searchQuery.trim()) return rows;
+    const term = searchQuery.trim().toLowerCase();
+    
     return rows.filter(r => {
-      const name = cellValue(r, 'Primary');
-      const status = cellValue(r, 'Status');
-      const health = cellValue(r, 'Health');
-      const assigned = cellValue(r, 'Assigned To');
-      const assignedStr = Array.isArray(assigned) ? assigned.join(',') : assigned;
-      return contains(name) || contains(status) || contains(health) || contains(assignedStr);
+      const name = getCellValue(r, 'Primary');
+      const status = getCellValue(r, 'Status');
+      const health = getCellValue(r, 'Health');
+      const team = getCellValue(r, 'Assigned To');
+      const teamStr = Array.isArray(team) ? team.join(' ') : team;
+      
+      return [name, status, health, teamStr].some(v => 
+        String(v || '').toLowerCase().includes(term)
+      );
     });
-  }, [rows, q]);
+  }, [rows, searchQuery]);
 
   /* -------------------- Action Handlers -------------------- */
   
-  async function onCreate(form) {
+  async function handleCreateTask(formData) {
     await createTask({
-      parentId: String(form.phaseRowId),
+      parentId: String(formData.phaseRowId),
       cells: {
-        'Primary': form.taskName || 'New Task',
-        'Assigned To': form.assignedTo || [],
-        'Start Date': form.start || '',
-        'End Date': form.end || '',
-        '% Complete': Number(form.percent || 0),
-        'Status': 'In Queue'
+        'Primary': formData.taskName || 'Untitled Objective',
+        'Assigned To': formData.assignedTo || [],
+        'Start Date': formData.start || '',
+        'End Date': formData.end || '',
+        '% Complete': Number(formData.percent || 0),
+        'Status': 'Not Started'
       }
     });
     setShowAdd(false);
-    await load();
+    await refreshData();
   }
 
-  async function onQuickUpdate(rowId, title, value) {
-    await updateTask(String(rowId), { [title]: value });
-    const t = await getTasks();
-    setRows(t.rows || []);
+  async function handleQuickUpdate(rowId, fieldTitle, value) {
+    try {
+      await updateTask(String(rowId), { [fieldTitle]: value });
+      const updatedTasks = await getTasks();
+      setRows(updatedTasks.rows || []);
+    } catch (e) {
+      alert(`Update failed: ${e.message}`);
+    }
   }
 
   function requestDelete(rowId) {
@@ -379,56 +217,63 @@ export default function App() {
     if (!row || row.isPhase) return;
     setConfirmState({
       open: true,
-      row: { id: rowId, name: cellValue(row, 'Primary') || 'this task' }
+      row: { id: rowId, name: getCellValue(row, 'Primary') || 'this objective' }
     });
   }
 
-  async function confirmDelete() {
+  async function handleConfirmDelete() {
     if (!confirmState.row) return;
     await deleteTask(String(confirmState.row.id));
     setConfirmState({ open: false, row: null });
-    await load();
+    await refreshData();
   }
 
-  async function onSaveEdit() {
+  async function handleSaveEdit() {
     if (!editRow) return;
     await updateTask(String(editRow.id), {
-      'Primary': editForm.primary || cellValue(editRow, 'Primary'),
+      'Primary': editForm.primary || getCellValue(editRow, 'Primary'),
       'Assigned To': editForm.assignedTo || [],
       'Start Date': editForm.start || '',
       'End Date': editForm.end || '',
       '% Complete': Number(editForm.percent || 0)
     });
     setEditRow(null);
-    await load();
+    await refreshData();
   }
 
-  if (loading) return <div className="container loading-state">Initializing Dashboard…</div>;
+  if (loading) return (
+    <div className="container" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}>
+      <div className="loading-state">Synchronizing Smartsheet Ledger…</div>
+    </div>
+  );
 
   return (
     <div className="container">
 
+      {/* Persistence Controls */}
       <header className="app-header">
-        <div className="brand">PR‑123456 — Example Project Dashboard</div>
+        <div className="brand">Smartsheet Project Dashboard</div>
         <div className="header-actions">
-          <button className="btn btn-ghost" title="Theme (D)" onClick={toggle}>☾/☀︎</button>
-          <button className="btn btn-primary" onClick={() => setShowAdd(true)}>+ Add Task</button>
+          <button className="btn btn-ghost" title="Toggle Surface (D)" onClick={toggle}>☾/☀︎</button>
+          <button className="btn btn-primary" onClick={() => setShowAdd(true)}>+ Initialize Task</button>
         </div>
       </header>
 
+      {/* Discovery Toolbar */}
       <section className="toolbar">
         <div className="search-field">
           <span className="icon">🔎</span>
           <input
             ref={searchRef}
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Search team members, task names, or status… (/)"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Query team, objectives, or status… (/)"
           />
-          {q && <span className="results-badge">{displayRows.length} results</span>}
+          {searchQuery && <span className="results-badge">{displayRows.length} found</span>}
         </div>
       </section>
 
+      {/* Execution Matrix */}
       <main className="table-container">
         <table className="project-table">
           <thead>
@@ -437,15 +282,15 @@ export default function App() {
               {columns.map((c) => (
                 <th key={String(c.id)}>{c.title}</th>
               ))}
-              <th className="cell-actions">Operations</th>
+              <th className="cell-actions">Oversight</th>
             </tr>
           </thead>
           <tbody>
             {displayRows.map((row) => (
               <tr
                 key={String(row.id)}
-                className={`${row.isPhase ? 'row-phase' : 'row-task'} ${selected === String(row.id) ? 'row-selected' : ''}`}
-                onClick={() => setSelected(String(row.id))}
+                className={`${row.isPhase ? 'row-phase' : 'row-task'} ${selectedId === String(row.id) ? 'row-selected' : ''}`}
+                onClick={() => setSelectedId(String(row.id))}
               >
                 <td className="cell-indent">{row.indent ? '↳' : ''}</td>
 
@@ -455,7 +300,7 @@ export default function App() {
                   if (col.title === 'Health') {
                     return (
                       <td key={String(col.id)} className="cell-center">
-                        <span className={`health-marker ${healthClass(cell.value)}`}></span>
+                        <span className={`health-marker ${getHealthClass(cell.value)}`}></span>
                       </td>
                     );
                   }
@@ -463,13 +308,13 @@ export default function App() {
                   if (col.title === 'Status') {
                     return (
                       <td key={String(col.id)}>
-                        <span className={`status-badge ${statusClass(cell.value)}`}>{cell.value || 'Planned'}</span>
+                        <span className={`status-badge ${getStatusClass(cell.value)}`}>{cell.value || 'Scheduled'}</span>
                       </td>
                     );
                   }
 
                   if (col.title === 'Children') {
-                    const count = row.isPhase ? (childrenCount.get(String(row.id)) || 0) : 0;
+                    const count = row.isPhase ? (phaseChildCount.get(String(row.id)) || 0) : 0;
                     return <td key={String(col.id)} className="cell-numeric">{count}</td>;
                   }
 
@@ -480,7 +325,7 @@ export default function App() {
                         <ContactMultiSelect
                           contacts={contacts}
                           value={emails}
-                          onChange={(updated) => onQuickUpdate(row.id, 'Assigned To', updated)}
+                          onChange={(updated) => handleQuickUpdate(row.id, 'Assigned To', updated)}
                         />
                       </td>
                     );
@@ -495,11 +340,17 @@ export default function App() {
                           <input 
                             className="input-inline" 
                             value={cell.value} 
-                            onChange={(e) => onQuickUpdate(row.id, 'Primary', e.target.value)} 
+                            onChange={(e) => handleQuickUpdate(row.id, 'Primary', e.target.value)} 
                           />
                         )}
                       </td>
                     );
+                  }
+
+                  // Contextual fallback for remaining time
+                  if (col.title === 'Working Days Remaining' && !cell.value) {
+                    const fallback = calculateBusinessDays(getCellValue(row, 'End Date'));
+                    return <td key={String(col.id)} className="text-muted">{fallback || '—'}</td>;
                   }
 
                   return (
@@ -508,7 +359,7 @@ export default function App() {
                         <input 
                           className="input-inline"
                           value={String(cell.value ?? '')} 
-                          onChange={(e) => onQuickUpdate(row.id, col.title, e.target.value)} 
+                          onChange={(e) => handleQuickUpdate(row.id, col.title, e.target.value)} 
                         />
                       ) : (
                         <span className={!cell.value ? 'text-muted' : ''}>{String(cell.value || '—')}</span>
@@ -520,7 +371,7 @@ export default function App() {
                 <td className="cell-actions-list">
                   {!row.isPhase ? (
                     <div className="btn-group">
-                      <button className="btn btn-sm" onClick={() => { setEditRow(row); seedEditForm(row); }}>Modify</button>
+                      <button className="btn btn-sm" onClick={() => { setEditRow(row); seedEditForm(row); }}>Modifier</button>
                       <button className="btn btn-sm btn-danger" onClick={() => requestDelete(row.id)}>Remove</button>
                     </div>
                   ) : <span className="text-muted">—</span>}
@@ -531,61 +382,95 @@ export default function App() {
         </table>
       </main>
 
-      {/* Task Creation Modal */}
+      {/* Modal Orchestration */}
       {showAdd && (
         <AddModal
           phases={phases}
           contacts={contacts}
           onClose={() => setShowAdd(false)}
-          onCreate={onCreate}
+          onCreate={handleCreateTask}
         />
       )}
 
-      {/* Task Modification Side-panel */}
+      {/* Objective Modification Drawer */}
       {editRow && (
-        <aside className="side-drawer">
-          <div className="drawer-header">
-            <h3>Modify Task</h3>
-            <button className="btn-close" onClick={() => setEditRow(null)}>×</button>
+        <aside className="side-drawer" style={{ display: 'flex', flexDirection: 'column' }}>
+          <div className="drawer-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+            <h3 style={{ margin: 0 }}>Objective Modification</h3>
+            <button className="btn btn-ghost" onClick={() => setEditRow(null)}>×</button>
           </div>
-          <div className="drawer-body">
-            <Field label="Task Designation">
-              <input value={editForm.primary || ''} onChange={(e) => setEditForm({ ...editForm, primary: e.target.value })} />
-            </Field>
-            <Field label="Assignees">
+          
+          <div className="drawer-body" style={{ flex: 1, overflow: 'auto' }}>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600, display: 'block', marginBottom: 6 }}>PRIMARY DESIGNATION</label>
+              <input 
+                className="input-inline" 
+                style={{ border: '1px solid var(--border)', background: 'var(--bg)', padding: '10px' }}
+                value={editForm.primary || ''} 
+                onChange={(e) => setEditForm({ ...editForm, primary: e.target.value })} 
+              />
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600, display: 'block', marginBottom: 6 }}>ASSIGNED TEAM</label>
               <ContactMultiSelect
                 contacts={contacts}
                 value={editForm.assignedTo || []}
                 onChange={(updated) => setEditForm({ ...editForm, assignedTo: updated })}
               />
-            </Field>
-            <Field label="Completion (%)">
-              <input type="number" min={0} max={100} value={editForm.percent || 0} onChange={(e) => setEditForm({ ...editForm, percent: Number(e.target.value) })} />
-            </Field>
-            <div className="horizontal-fields">
-              <Field label="Start" style={{ flex: 1 }}>
-                <input type="date" value={(editForm.start || '').split('T')[0]} onChange={(e) => setEditForm({ ...editForm, start: e.target.value })} />
-              </Field>
-              <Field label="End" style={{ flex: 1 }}>
-                <input type="date" value={(editForm.end || '').split('T')[0]} onChange={(e) => setEditForm({ ...editForm, end: e.target.value })} />
-              </Field>
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600, display: 'block', marginBottom: 6 }}>PROGRESS QUANTUM (%)</label>
+              <input 
+                type="number" 
+                className="input-inline"
+                style={{ border: '1px solid var(--border)', background: 'var(--bg)', padding: '10px' }}
+                min={0} max={100} 
+                value={editForm.percent || 0} 
+                onChange={(e) => setEditForm({ ...editForm, percent: Number(e.target.value) })} 
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: 12 }}>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600, display: 'block', marginBottom: 6 }}>START</label>
+                <input 
+                  type="date" 
+                  className="input-inline"
+                  style={{ border: '1px solid var(--border)', background: 'var(--bg)', padding: '10px' }}
+                  value={(editForm.start || '').split('T')[0]} 
+                  onChange={(e) => setEditForm({ ...editForm, start: e.target.value })} 
+                />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600, display: 'block', marginBottom: 6 }}>END</label>
+                <input 
+                  type="date" 
+                  className="input-inline"
+                  style={{ border: '1px solid var(--border)', background: 'var(--bg)', padding: '10px' }}
+                  value={(editForm.end || '').split('T')[0]} 
+                  onChange={(e) => setEditForm({ ...editForm, end: e.target.value })} 
+                />
+              </div>
             </div>
           </div>
-          <div className="drawer-footer">
-            <button className="btn" onClick={() => setEditRow(null)}>Dismiss</button>
-            <button className="btn btn-primary" onClick={onSaveEdit}>Perspective Changes</button>
+
+          <div className="drawer-footer" style={{ marginTop: 20, paddingTop: 20, borderTop: '1px solid var(--border)', display: 'flex', gap: 12 }}>
+            <button className="btn" style={{ flex: 1 }} onClick={() => setEditRow(null)}>Discard</button>
+            <button className="btn btn-primary" style={{ flex: 1 }} onClick={handleSaveEdit}>Persist Changes</button>
           </div>
         </aside>
       )}
 
-      {/* Persistence Confirmation */}
+      {/* Destructive Action Guard */}
       <ConfirmDialog
         open={confirmState.open}
-        title="Confirm Task Removal"
-        message={`Are you sure you wish to permanently remove "${confirmState.row?.name}"? This action synchronizes directly with Smartsheet and remains final.`}
-        confirmText="Remove Task"
+        title="Confirm Objective Removal"
+        message={`Are you sure you wish to permanently remove "${confirmState.row?.name}"? This action is synchronized directly with the Smartsheet ledger and cannot be reversed.`}
+        confirmText="Execute Removal"
         onCancel={() => setConfirmState({ open: false, row: null })}
-        onConfirm={confirmDelete}
+        onConfirm={handleConfirmDelete}
       />
     </div>
   );
