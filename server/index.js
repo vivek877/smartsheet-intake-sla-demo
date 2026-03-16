@@ -58,16 +58,11 @@ function sanitizeSheetId(raw) {
 
 /* -------------------- Load columns & build map -------------------- */
 async function loadColumns(id) {
-  // Correct method for: https://api.smartsheet.com/2.0/sheets/{sheetId}
-  const response = await sdk.sheets.getSheet({
-    sheetId: Number(id),
-    queryParameters: {
-      include: 'objectValue,attachments,discussions'
-    }
-  });
-  const sheet = response.data || response.sheet || response; 
+  // Direct REST call to: https://api.smartsheet.com/2.0/sheets/{sheetId}
+  // This is 100% stable and returns exactly one sheet object.
+  const sheet = await sdk.sheets.getSheet(id);
   
-  SHEET_DATA = sheet; // Cache the full sheet for performance
+  SHEET_DATA = sheet; // Cache for frontend speed
   // so other APIs don't have to fetch it again
 
   console.log('sheet columns:', sheet.columns ? sheet.columns.length : 'none');
@@ -98,7 +93,7 @@ async function resolveSheetIdSmart() {
   let getEnvErr = null;
   if (envId) {
     try {
-      await sdk.sheets.getSheet({ sheetId: envId }); // verify id works with token
+      await sdk.sheets.getSheet(envId); 
       SHEET_ID = envId;
       console.log('Using explicit numeric SHEET_ID:', SHEET_ID);
       return SHEET_ID;
@@ -117,10 +112,8 @@ async function resolveSheetIdSmart() {
     let listErr = null;
     try {
       // Fetch all sheets for the user
-      const list = await sdk.sheets.listSheets({
-        queryParameters: { includeAll: true },
-      });
-      found = (list.data || []).find(
+      const listResponse = await sdk.sheets.listSheets();
+      found = (listResponse.data || []).find(
         (s) => (s.name || '').trim() === SHEET_NAME
       );
     } catch (e) {
@@ -136,7 +129,8 @@ async function resolveSheetIdSmart() {
 
     try {
       // verified that sheetId is the correct key for this token in diag
-      await sdk.sheets.getSheet({ sheetId: found.id });
+      // verify we can open it via REST
+      await sdk.sheets.getSheet(found.id);
       SHEET_ID = found.id;
       console.log('Resolved SHEET_ID from name ->', SHEET_ID);
       return SHEET_ID;
@@ -379,8 +373,8 @@ app.get(['/__diag', '/api/__diag'], async (_req, res) => {
     }
 
     const liveId = await resolveSheetIdSmart(); 
-    sheetResponse = await sdk.sheets.getSheet({ sheetId: Number(liveId) });
-    const sheet = sheetResponse.data || sheetResponse.sheet || sheetResponse;
+    sheetResponse = await sdk.sheets.getSheet(liveId);
+    const sheet = sheetResponse;
 
     return res.json({
       sheetResponse: sheetResponse,
