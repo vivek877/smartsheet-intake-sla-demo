@@ -1,9 +1,5 @@
 const BASE_URL = 'https://api.smartsheet.com/2.0';
 
-/**
- * Senior Developer REST Client for Smartsheet.
- * Replaces the inconsistent SDK with direct, transparent fetch calls.
- */
 module.exports = function createSmartsheet(token) {
   const call = async (path, options = {}) => {
     const url = `${BASE_URL}${path}`;
@@ -30,18 +26,18 @@ module.exports = function createSmartsheet(token) {
       getSheet: (sheetId) => call(`/sheets/${sheetId}?include=objectValue,attachments,discussions`),
       listSheets: () => call('/sheets?includeAll=true'),
       getRow: (sheetId, rowId) => call(`/sheets/${sheetId}/rows/${rowId}`),
-      
+
       // Row Operations
-      addRows: ({ sheetId, body }) => call(`/sheets/${sheetId}/rows`, { 
-        method: 'POST', 
-        body: JSON.stringify(body) 
+      addRows: ({ sheetId, body }) => call(`/sheets/${sheetId}/rows`, {
+        method: 'POST',
+        body: JSON.stringify(body)
       }),
-      updateRows: ({ sheetId, body }) => call(`/sheets/${sheetId}/rows`, { 
-        method: 'PUT', 
-        body: JSON.stringify(body) 
+      updateRows: ({ sheetId, body }) => call(`/sheets/${sheetId}/rows`, {
+        method: 'PUT',
+        body: JSON.stringify(body)
       }),
-      deleteRows: ({ sheetId, rowIds }) => call(`/sheets/${sheetId}/rows?ids=${rowIds}`, { 
-        method: 'DELETE' 
+      deleteRows: ({ sheetId, rowIds }) => call(`/sheets/${sheetId}/rows?ids=${rowIds}`, {
+        method: 'DELETE'
       })
     }
   };

@@ -61,7 +61,7 @@ async function loadColumns(id) {
   // Direct REST call to: https://api.smartsheet.com/2.0/sheets/{sheetId}
   // This is 100% stable and returns exactly one sheet object.
   const sheet = await sdk.sheets.getSheet(id);
-  
+
   SHEET_DATA = sheet; // Cache for frontend speed
   // so other APIs don't have to fetch it again
 
@@ -93,7 +93,7 @@ async function resolveSheetIdSmart() {
   let getEnvErr = null;
   if (envId) {
     try {
-      await sdk.sheets.getSheet(envId); 
+      await sdk.sheets.getSheet(envId);
       SHEET_ID = envId;
       console.log('Using explicit numeric SHEET_ID:', SHEET_ID);
       return SHEET_ID;
@@ -169,53 +169,6 @@ function findNameColumn() {
     if (col) return col;
   }
   return COLUMNS.find((c) => c.type === 'TEXT_NUMBER') || COLUMNS[0] || null;
-}
-
-function findStartColumn() {
-  const candidates = ['Start', 'Start Date', 'StartDate'];
-  for (const cand of candidates) {
-    const col = colByTitleInsensitive(cand);
-    if (col) return col;
-  }
-  return null;
-}
-
-function findEndColumn() {
-  const candidates = ['End', 'End Date', 'EndDate', 'Finish'];
-  for (const cand of candidates) {
-    const col = colByTitleInsensitive(cand);
-    if (col) return col;
-  }
-  return null;
-}
-
-function findPercentColumn() {
-  const candidates = ['% Complete', 'Percent Complete', 'Complete %'];
-  for (const cand of candidates) {
-    const col = colByTitleInsensitive(cand);
-    if (col) return col;
-  }
-  return null;
-}
-
-function findStatusColumn() {
-  const candidates = ['Status'];
-  for (const cand of candidates) {
-    const col = colByTitleInsensitive(cand);
-    if (col) return col;
-  }
-  return null;
-}
-
-function findAssignedToColumn() {
-  let col = colByTitleInsensitive('Assigned To');
-  if (col) return col;
-  const candidates = ['Assignee', 'Owner', 'Assigned', 'AssignedTo'];
-  for (const cand of candidates) {
-    col = colByTitleInsensitive(cand);
-    if (col) return col;
-  }
-  return null;
 }
 
 function isContactLike(col) {
@@ -372,7 +325,7 @@ app.get(['/__diag', '/api/__diag'], async (_req, res) => {
       listSheetsTest = `Failed to listSheets: ${errList.message}`;
     }
 
-    const liveId = await resolveSheetIdSmart(); 
+    const liveId = await resolveSheetIdSmart();
     sheetResponse = await sdk.sheets.getSheet(liveId);
     const sheet = sheetResponse;
 
