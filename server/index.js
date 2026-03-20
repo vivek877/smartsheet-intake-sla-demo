@@ -28,16 +28,18 @@ const ORIGINS = ORIGINS_ENV.split(',').map((s) => s.trim());
 //   }
 // }));
 
+
 app.use(cors({
   origin: (origin, cb) => {
     if (ORIGINS.includes('*') || !origin || ORIGINS.includes(origin)) return cb(null, true);
     return cb(new Error('CORS blocked'), false);
   },
   methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With'],
+  optionsSuccessStatus: 204
 }));
 
-// Make sure OPTIONS preflight succeeds
+// Ensure preflight succeeds for every path
 app.options('*', cors());
 
 app.use(express.json());
